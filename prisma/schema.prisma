@@ -1,0 +1,87 @@
+// Lexi data model
+// Prisma 6 + Supabase Postgres
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @db.Uuid
+  email     String   @unique
+  name      String?
+  avatarUrl String?  @map("avatar_url")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  userWords UserWord[]
+
+  @@map("users")
+}
+
+model WordBook {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  subtitle    String
+  description String
+  level       String
+  accent      String   @default("#dff3c8")
+  emoji       String   @default("📘")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  words Word[]
+
+  @@map("word_books")
+}
+
+model Word {
+  id             String   @id @default(cuid())
+  spelling       String
+  phonetic       String
+  partOfSpeech   String?  @map("part_of_speech")
+  meaning        String
+  exampleEn      String?  @map("example_en")
+  exampleZh      String?  @map("example_zh")
+  memoryHint     String?  @map("memory_hint")
+  wordBookId     String   @map("word_book_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  wordBook  WordBook   @relation(fields: [wordBookId], references: [id], onDelete: Cascade)
+  userWords UserWord[]
+
+  @@unique([wordBookId, spelling])
+  @@index([wordBookId])
+  @@map("words")
+}
+
+model UserWord {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id") @db.Uuid
+  wordId         String    @map("word_id")
+  mastery        Int       @default(0)
+  nextReviewAt   DateTime  @default(now()) @map("next_review_at")
+  easeFactor     Float     @default(2.5) @map("ease_factor")
+  interval       Int       @default(1)
+  repetitions    Int       @default(0)
+  isBookmarked   Boolean   @default(false) @map("is_bookmarked")
+  lastRating     String?   @map("last_rating")
+  lastReviewedAt DateTime? @map("last_reviewed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  word Word @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, wordId])
+  @@index([userId, nextReviewAt])
+  @@index([userId, isBookmarked])
+  @@map("user_words")
+}
