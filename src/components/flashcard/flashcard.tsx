@@ -188,12 +188,12 @@ export function Flashcard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, words.length, onClose, saving]);
 
-  useEffect(() => {
+  function generateMemory() {
     const targetWord = word;
     if (
       !targetWord ||
-      !flipped ||
       !canSave ||
+      !flipped ||
       memory ||
       inFlightMemory.current.has(targetWord.id)
     ) {
@@ -241,7 +241,7 @@ export function Flashcard({
           [wordId]: false,
         }));
       });
-  }, [word, flipped, canSave, memory]);
+  }
 
   function speak() {
     if (!word) {
@@ -531,11 +531,6 @@ export function Flashcard({
                             <span className="rounded-full bg-ink px-2.5 py-1 font-mono text-[9px] uppercase tracking-[0.18em] text-paper">
                               Word {String(index + 1).padStart(2, "0")}
                             </span>
-                            {word.partOfSpeech ? (
-                              <span className="font-mono text-[11px] text-ink-faint">
-                                {word.partOfSpeech}
-                              </span>
-                            ) : null}
                           </div>
 
                           <div className="flex flex-1 flex-col items-center justify-center text-center">
@@ -545,6 +540,15 @@ export function Flashcard({
                             <p className="mt-4 font-mono text-sm text-ink-faint sm:text-base">
                               {word.phonetic}
                             </p>
+                            {word.partOfSpeech ? (
+                              <span className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-moss/15 bg-moss/[0.06] px-3 py-1 font-mono text-[11px] leading-none text-moss">
+                                <span
+                                  className="size-1.5 rounded-full bg-moss/60"
+                                  aria-hidden="true"
+                                />
+                                {word.partOfSpeech}
+                              </span>
+                            ) : null}
                             <button
                               type="button"
                               onClick={(event) => {
@@ -590,9 +594,16 @@ export function Flashcard({
                             </button>
                           </div>
 
-                          <h2 className="mt-4 text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-[1.7rem]">
-                            {word.meaning}
-                          </h2>
+                          <div className="mt-4 flex flex-wrap items-start gap-2.5">
+                            {word.partOfSpeech ? (
+                              <span className="mt-0.5 inline-flex shrink-0 items-center rounded-full bg-moss/[0.08] px-2.5 py-1 font-mono text-[10px] leading-none text-moss">
+                                {word.partOfSpeech}
+                              </span>
+                            ) : null}
+                            <h2 className="min-w-0 flex-1 text-2xl font-semibold leading-snug tracking-tight text-ink sm:text-[1.7rem]">
+                              {word.meaning}
+                            </h2>
+                          </div>
 
                           {word.exampleEn ? (
                             <div className="mt-5 rounded-2xl border border-line/70 bg-cream/70 p-4">
@@ -676,13 +687,33 @@ export function Flashcard({
                                 })}
                               </div>
                             ) : (
-                              <div className="mt-3 space-y-2">
-                                {[0, 1, 2].map((item) => (
-                                  <div
-                                    key={item}
-                                    className="h-12 animate-soft-pulse rounded-xl bg-ink/[0.05]"
-                                  />
-                                ))}
+                              <div className="mt-3 rounded-2xl border border-line/70 bg-cream/65 p-4">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint">
+                                    预置记忆提示
+                                  </p>
+                                  <span className="rounded-full bg-ink/5 px-2 py-0.5 text-[9px] text-ink-faint">
+                                    种子词库
+                                  </span>
+                                </div>
+                                <p className="mt-2 text-xs leading-5 text-ink-soft">
+                                  {word.memoryHint ||
+                                    "这个词还没有预置提示，可以让 AI 从联想、词根和谐音三个角度生成。"}
+                                </p>
+                                <p className="mt-2 text-[10px] leading-4 text-ink-faint">
+                                  释义、例句和提示已随词库写入；需要更多角度时再调用 AI。
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    generateMemory();
+                                  }}
+                                  className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-moss/20 bg-lime/60 px-3 py-1.5 text-[11px] font-medium text-moss-deep transition hover:bg-lime"
+                                >
+                                  <Sparkles className="size-3.5" />
+                                  用 AI 生成三种记忆法
+                                </button>
                               </div>
                             )}
                           </div>

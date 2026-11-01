@@ -11,13 +11,13 @@
 | 模块 | 说明 |
 | --- | --- |
 | 词书 | 首页展示 4 本内置词书，进入词书查看单词列表、掌握进度与待复习数量 |
-| 闪卡 | 全屏 3D 翻转；正面英文 + 音标 + 浏览器 `SpeechSynthesis` 发音，背面中文释义 + 例句 + 记忆提示 |
+| 闪卡 | 全屏 3D 翻转；正面英文 + 音标 + 词性 + 浏览器 `SpeechSynthesis` 发音，背面中文释义 + 词性 + 例句 + 记忆提示 |
 | 快捷操作 | 点击卡片或空格翻面，`←` / `→` 切词，`Esc` 关闭 |
 | 评分 | 「认识 / 模糊 / 不认识」写入 `UserWord`，按 SM-2 规则更新间隔、easeFactor、repetitions 与掌握度 |
 | 生词本 | 卡片右上角心形收藏；`/bookmarks` 集中查看、移除、一键闪卡复习 |
-| AI 记忆法 | 首次翻到卡背时调用 `/api/generate-memory`，生成「联想 / 词根 / 谐音」三种风格，结果在进程内缓存 |
+| AI 记忆法 | 卡背先展示种子词库自带的记忆提示；登录后点击「用 AI 生成三种记忆法」才调用 `/api/generate-memory`，生成「联想 / 词根 / 谐音」三种风格并缓存 |
 | 账号 | Supabase Auth 邮箱密码注册/登录；所有 `UserWord` 读写绑定当前登录用户 |
-| 预览模式 | 未配置数据库或 Supabase 时，页面仍可用内置 24 个单词跑通浏览与闪卡（登录/保存不可用） |
+| 预览模式 | 未配置数据库或 Supabase 时，页面仍可用内置 100 个单词跑通浏览与闪卡（登录/保存不可用） |
 
 ---
 
@@ -61,10 +61,12 @@ Copy-Item .env.example .env
 # 应用已有迁移（首次会创建四张表）
 npx prisma migrate dev
 
-# 写入 4 本词书、24 个单词
+# 写入 4 本词书、100 个单词
 npx prisma db seed
 ```
 
+> 如果数据库已经初始化过，重新执行 `npx prisma db seed`（或 `npm run db:seed`）即可增量更新：按 `slug` / `wordBookId + spelling` upsert，已有 24 个词会被补全，新增的 76 个词会插入；不会删除你库中不在种子里的词。
+>
 > 如果你修改了 `prisma/schema.prisma`，用 `npx prisma migrate dev --name <变更名>` 生成新迁移。
 > 生产环境只执行 `npx prisma migrate deploy`，不要执行 `migrate dev`。
 
@@ -241,7 +243,8 @@ npm start
 │  │  ├─ sm2.ts                     # 间隔更新
 │  │  ├─ supabase/{client,server,config}.ts
 │  │  ├─ api-error.ts / redirect.ts
-│  │  ├─ wordbook-data.ts           # 4 本词书 × 6 词种子
+│  │  ├─ wordbook-data.ts           # 4 本词书 × 25 词（共 100 词）种子
+│  │  ├─ vocabulary-extra.ts        # 扩充的 76 个高频词
 │  │  └─ types.ts
 │  └─ proxy.ts                      # Supabase session 刷新（Next 16 的 middleware）
 ├─ .env.example
@@ -326,7 +329,7 @@ Remove-Item Env:DATABASE_URL
 - 注册 → 邮箱确认 → 登录
 - 进入词书 → 点单词 → 翻转 → 发音 → 评分
 - 心形收藏 → `/bookmarks` 能看到并移除
-- 登录状态下翻到卡背，观察 AI 记忆法（无 Key 时显示离线提示）
+- 登录状态下翻到卡背，点击「用 AI 生成三种记忆法」（无 Key 时显示离线提示）
 - 退出登录后 `/bookmarks` 会显示登录引导，不展示任何收藏数据
 
 ---

@@ -1,3 +1,5 @@
+import { extraWordsByBook } from "./vocabulary-extra";
+
 export type SeedWord = {
   spelling: string;
   phonetic: string;
@@ -289,7 +291,10 @@ export const wordbookSeed: SeedWordBook[] = [
       },
     ],
   },
-];
+].map((book) => ({
+  ...book,
+  words: [...book.words, ...(extraWordsByBook[book.slug] ?? [])],
+}));
 
 export function findSeedBook(slug: string) {
   return wordbookSeed.find((book) => book.slug === slug);
