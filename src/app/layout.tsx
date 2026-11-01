@@ -24,6 +24,10 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+// The header reads the Supabase session on every request, so no page that
+// shares this layout can be statically pre-rendered.
+export const dynamic = "force-dynamic";
+
 export default async function RootLayout({
   children,
 }: {

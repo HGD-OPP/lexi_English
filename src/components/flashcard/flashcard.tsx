@@ -18,7 +18,12 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 
 import type {
   MemoryApiResponse,
@@ -27,6 +32,11 @@ import type {
   UserWordSnapshot,
   WordWithProgress,
 } from "@/lib/types";
+
+type SpellingResult = {
+  status: "correct" | "wrong";
+  submitted: string;
+};
 
 type FlashcardProps = {
   words: WordWithProgress[];
@@ -104,6 +114,10 @@ export function Flashcard({
   const [bookmarkSaving, setBookmarkSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [spellingAnswer, setSpellingAnswer] = useState("");
+  const [spellingResult, setSpellingResult] = useState<SpellingResult | null>(
+    null,
+  );
   const [finished, setFinished] = useState(false);
   const [reviewedCount, setReviewedCount] = useState(0);
   const advanceTimer = useRef<number | null>(null);
@@ -137,6 +151,8 @@ export function Flashcard({
     setIndex(nextIndex);
     setFlipped(false);
     setFeedback(null);
+    setSpellingAnswer("");
+    setSpellingResult(null);
     setNotice(null);
     setFinished(false);
     setSaving(false);
@@ -149,12 +165,12 @@ export function Flashcard({
         target?.tagName === "INPUT" ||
         target?.tagName === "TEXTAREA" ||
         target?.isContentEditable;
-      if (isTyping) {
-        return;
-      }
 
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+      if (isTyping) {
         return;
       }
       if (saving) {
@@ -243,18 +259,15 @@ export function Flashcard({
       });
   }
 
-  function speak() {
-    if (!word) {
-      return;
-    }
+  function speakPhrase(text: string, rate = 0.9) {
     if (typeof window === "undefined" || !window.speechSynthesis) {
       setNotice("当前浏览器不支持语音朗读。");
       return;
     }
 
-    const utterance = new SpeechSynthesisUtterance(word.spelling);
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "en-US";
-    utterance.rate = 0.88;
+    utterance.rate = rate;
     utterance.pitch = 1;
     const voices = window.speechSynthesis.getVoices();
     const preferred =
@@ -267,13 +280,30 @@ export function Flashcard({
     window.speechSynthesis.speak(utterance);
   }
 
-  async function handleReview(rating: ReviewRating) {
+  function speak() {
     if (!word) {
       return;
     }
+    speakPhrase(word.spelling, 0.88);
+  }
+
+  function speakEncouragement(rating: ReviewRating) {
+    speakPhrase(rating === "known" ? "Excellent!" : "Keep going!", 0.95);
+  }
+
+  async function handleReview(
+    rating: ReviewRating,
+    options: { feedback?: string; delayMs?: number } = {},
+  ): Promise<boolean> {
+    if (!word) {
+      return false;
+    }
+
+    speakEncouragement(rating);
+
     if (!canSave) {
       setNotice("登录后才能保存掌握程度和复习时间。");
-      return;
+      return false;
     }
 
     setSaving(true);
@@ -299,9 +329,10 @@ export function Flashcard({
       onProgress?.(word.id, saved);
       setReviewedCount((count) => count + 1);
       setFeedback(
-        saved.interval === 1
-          ? "已记录 · 明天再见"
-          : `已记录 · ${saved.interval} 天后复习`,
+        options.feedback ??
+          (saved.interval === 1
+            ? "已记录 · 明天再见"
+            : `已记录 · ${saved.interval} 天后复习`),
       );
 
       advanceTimer.current = window.setTimeout(() => {
@@ -311,16 +342,56 @@ export function Flashcard({
           setIndex((current) => current + 1);
           setFlipped(false);
           setFeedback(null);
+          setSpellingAnswer("");
+          setSpellingResult(null);
         }
         setSaving(false);
         advanceTimer.current = null;
-      }, 700);
+      }, options.delayMs ?? 700);
+
+      return true;
     } catch (error) {
       setSaving(false);
       setNotice(
         error instanceof Error ? error.message : "保存失败，请稍后再试。",
       );
+      return false;
     }
+  }
+
+  function handleSpellingSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!word || !flipped || saving || spellingResult) {
+      return;
+    }
+    if (!canSave) {
+      setNotice("登录后才能保存拼写测试结果。");
+      return;
+    }
+
+    const submitted = spellingAnswer.trim();
+    if (!submitted) {
+      setNotice("先输入拼写，再按 Enter 验证。");
+      return;
+    }
+
+    const isCorrect =
+      submitted.toLowerCase() === word.spelling.trim().toLowerCase();
+    setSpellingResult({
+      status: isCorrect ? "correct" : "wrong",
+      submitted,
+    });
+
+    void handleReview(isCorrect ? "known" : "unknown", {
+      feedback: isCorrect
+        ? "Excellent! · 已标记为认识"
+        : "Keep going! · 已标记为不认识",
+      delayMs: isCorrect ? 1400 : 2200,
+    }).then((saved) => {
+      if (!saved) {
+        setSpellingResult(null);
+      }
+    });
   }
 
   async function toggleBookmark() {
@@ -364,6 +435,8 @@ export function Flashcard({
     setIndex(0);
     setFlipped(false);
     setFeedback(null);
+    setSpellingAnswer("");
+    setSpellingResult(null);
     setNotice(null);
     setFinished(false);
     setReviewedCount(0);
@@ -618,6 +691,96 @@ export function Flashcard({
                               ) : null}
                             </div>
                           ) : null}
+
+                          <form
+                            onSubmit={handleSpellingSubmit}
+                            onClick={(event) => event.stopPropagation()}
+                            className="mt-5 rounded-2xl border border-line/70 bg-cream/75 p-4"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <label
+                                htmlFor={`spelling-${word.id}`}
+                                className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint"
+                              >
+                                拼写验证
+                              </label>
+                              <span className="text-[9px] text-ink-faint">
+                                {canSave ? "按 Enter 提交" : "登录后可保存结果"}
+                              </span>
+                            </div>
+                            <p className="mt-1.5 text-[11px] leading-4 text-ink-faint">
+                              先别看答案，凭记忆写出这个词。
+                            </p>
+                            <div className="mt-3 flex gap-2">
+                              <input
+                                id={`spelling-${word.id}`}
+                                type="text"
+                                value={spellingAnswer}
+                                onChange={(event) =>
+                                  setSpellingAnswer(event.target.value)
+                                }
+                                placeholder={
+                                  canSave
+                                    ? "请输入拼写以验证记忆"
+                                    : "登录后输入拼写"
+                                }
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="none"
+                                spellCheck={false}
+                                enterKeyHint="done"
+                                maxLength={64}
+                                disabled={
+                                  !canSave || saving || Boolean(spellingResult)
+                                }
+                                className="h-11 min-w-0 flex-1 rounded-xl border border-line bg-cream px-3 font-mono text-sm text-ink outline-none transition placeholder:font-sans placeholder:text-[11px] placeholder:text-ink-faint focus:border-moss/50 focus:ring-2 focus:ring-moss/10 disabled:cursor-not-allowed disabled:opacity-55"
+                              />
+                              <button
+                                type="submit"
+                                disabled={
+                                  !canSave ||
+                                  saving ||
+                                  Boolean(spellingResult) ||
+                                  !spellingAnswer.trim()
+                                }
+                                className="inline-flex h-11 shrink-0 items-center justify-center rounded-xl bg-ink px-4 text-xs font-medium text-paper transition hover:bg-moss-deep disabled:cursor-not-allowed disabled:opacity-35"
+                              >
+                                验证
+                              </button>
+                            </div>
+
+                            {spellingResult?.status === "correct" ? (
+                              <p
+                                role="status"
+                                className="mt-3 flex items-center gap-1.5 text-xs font-medium text-moss"
+                              >
+                                <CircleCheck className="size-3.5" />
+                                拼写正确，正在标记为「认识」。
+                              </p>
+                            ) : spellingResult ? (
+                              <div
+                                role="alert"
+                                className="mt-3 rounded-xl border border-[#c35b4a]/25 bg-[#fbe9e4] px-3 py-2.5 text-xs text-[#9f3f32]"
+                              >
+                                <p className="flex items-center gap-1.5 font-medium">
+                                  <X className="size-3.5" />
+                                  拼写错误，正在标记为「不认识」。
+                                </p>
+                                <p className="mt-1.5">
+                                  正确拼写：
+                                  <strong className="font-mono text-sm">
+                                    {word.spelling}
+                                  </strong>
+                                </p>
+                                <p className="mt-1 text-[10px] text-[#9f3f32]/70">
+                                  你的输入：
+                                  <span className="font-mono line-through">
+                                    {spellingResult.submitted}
+                                  </span>
+                                </p>
+                              </div>
+                            ) : null}
+                          </form>
 
                           <div className="mt-5">
                             <div className="flex items-center justify-between gap-3">
