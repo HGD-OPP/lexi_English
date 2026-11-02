@@ -1,6 +1,6 @@
 # Lexi · 英语单词学习站
 
-一个「扇贝单词」式的英语学习网站：词书浏览、3D 闪卡翻转、SM-2 间隔复习、AI 记忆法、生词本，以及基于 Supabase Auth 的邮箱密码账号体系。
+一个「扇贝单词」式的英语学习网站：词书浏览、3D 闪卡翻转、SM-2 间隔复习、AI 记忆法、生词本、个人中心与连续打卡，以及基于 Supabase Auth 的邮箱密码账号体系。
 
 技术栈：**Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · Prisma 6 · Supabase Postgres / Auth · DeepSeek API**。部署目标：**Vercel**。
 
@@ -17,6 +17,8 @@
 | 快捷操作 | 点击卡片或空格翻面，`←` / `→` 切词，`Esc` 关闭；输入框内只处理 Esc，方向键和空格不误触 |
 | 评分 | 「认识 / 模糊 / 不认识」写入 `UserWord`，按 SM-2 规则更新间隔、easeFactor、repetitions 与掌握度 |
 | 生词本 | 卡片右上角心形收藏；`/bookmarks` 集中查看、移除、一键闪卡复习 |
+| 个人中心 | `/dashboard` 展示昵称、累计掌握单词数、连续打卡天数、已学习/待复习与总进度 |
+| 连续打卡 | 每次提交评分时按「今天已学不变 / 昨天学过 +1 / 断签重置为 1」更新 `User.studyStreak` 与 `User.lastStudyDate` |
 | AI 记忆法 | 卡背先展示种子词库自带的记忆提示；登录后点击「用 AI 生成三种记忆法」才调用 `/api/generate-memory`，生成「联想 / 词根 / 谐音」三种风格并缓存 |
 | 账号 | Supabase Auth 邮箱密码注册/登录；所有 `UserWord` 读写绑定当前登录用户 |
 | 预览模式 | 未配置数据库或 Supabase 时，页面仍可用内置 100 个单词跑通浏览与闪卡（登录/保存不可用） |
@@ -179,7 +181,7 @@ npm start
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
 | `GET` | `/api/words?book=<slug>&random=1&limit=20` | 否 | 按词书筛选、随机抽词；返回 `{ words, total, source }` |
-| `POST` | `/api/review` | 是 | `{ wordId, rating: "known" \| "fuzzy" \| "unknown" }`，更新 SM-2 并返回 `{ userWord, rating }` |
+| `POST` | `/api/review` | 是 | `{ wordId, rating: "known" \| "fuzzy" \| "unknown" }`，更新 SM-2、打卡天数，返回 `{ userWord, rating, studyStreak, studyDay }` |
 | `GET` | `/api/bookmarks` | 是 | 当前用户收藏列表 `{ bookmarks, source }` |
 | `POST` | `/api/bookmarks` | 是 | `{ wordId, bookmarked?: boolean }`，upsert 收藏状态 |
 | `DELETE` | `/api/bookmarks?wordId=<id>` | 是 | 取消收藏 |
@@ -204,6 +206,18 @@ npm start
 
 `nextReviewAt = 当前时间 + interval 天`。掌握度达到 `MASTERED_AT = 4` 视为已掌握。
 
+### 连续学习天数
+
+`User.studyStreak` 与 `User.lastStudyDate` 由 `POST /api/review` 维护，日期按 **Asia/Shanghai** 计算，`lastStudyDate` 用 Postgres `DATE` 存储：
+
+| 提交评分时的状态 | studyStreak |
+| --- | --- |
+| 今天已经评价过 | 不变 |
+| 上次学习是昨天 | +1 |
+| 首次学习 / 断签一天以上 | 重置为 1 |
+
+评分写入与打卡更新在同一个 Prisma 事务中；事务先锁住当前用户行（`SELECT ... FOR UPDATE`），避免两次快速提交把同一天重复加一。首页和 `/dashboard` 都直接读取这个字段，因此两处显示一致。
+
 ---
 
 ## 项目结构
@@ -215,8 +229,10 @@ npm start
 │  ├─ seed.ts                       # 幂等写入内置词书与单词
 │  └─ migrations/
 │     ├─ migration_lock.toml
-│     └─ 20261030234500_init/
-│        └─ migration.sql           # 建表、索引、级联 FK、启用 RLS
+│     ├─ 20261030234500_init/
+│     │  └─ migration.sql           # 建表、索引、级联 FK、启用 RLS
+│     └─ 20261102211000_add_study_streak/
+│        └─ migration.sql           # users.study_streak / last_study_date
 ├─ src/
 │  ├─ app/
 │  │  ├─ layout.tsx                 # 全局字体、Header/Footer
@@ -224,6 +240,7 @@ npm start
 │  │  ├─ globals.css                # Tailwind 4 主题与 3D 翻转样式
 │  │  ├─ books/[slug]/page.tsx      # 词书详情 + 单词列表
 │  │  ├─ bookmarks/page.tsx         # 生词本
+│  │  ├─ dashboard/page.tsx         # 个人中心 + 打卡统计
 │  │  ├─ login/page.tsx             # 登录/注册
 │  │  ├─ auth/callback/route.ts     # Supabase Auth 回调
 │  │  └─ api/
@@ -243,6 +260,7 @@ npm start
 │  │  ├─ auth.ts                    # getViewer / requireViewer / User 镜像
 │  │  ├─ data.ts                    # 数据访问 + 无库预览回退
 │  │  ├─ sm2.ts                     # 间隔更新
+│  │  ├─ study-streak.ts            # Asia/Shanghai 学习日与连续打卡推进
 │  │  ├─ supabase/{client,server,config}.ts
 │  │  ├─ api-error.ts / redirect.ts
 │  │  ├─ wordbook-data.ts           # 4 本词书 × 25 词（共 100 词）种子

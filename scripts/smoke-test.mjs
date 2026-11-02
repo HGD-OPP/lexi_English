@@ -4,6 +4,7 @@ const pages = [
   ["/", "把单词"],
   ["/books/everyday-essentials", "Everyday Essentials"],
   ["/bookmarks", "生词本"],
+  ["/dashboard", "登录后查看个人中心"],
   ["/login", "登录"],
 ];
 

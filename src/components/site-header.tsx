@@ -32,12 +32,14 @@ export function SiteHeader({ viewer }: { viewer: Viewer | null }) {
           <span className="mx-1 hidden h-5 w-px bg-line sm:block" />
           {viewer ? (
             <div className="flex items-center gap-2">
-              <span
-                className="grid size-9 place-items-center rounded-full border border-moss/15 bg-lime font-display text-base text-moss-deep"
+              <Link
+                href="/dashboard"
+                aria-label="打开个人中心"
+                className="hidden size-9 place-items-center rounded-full border border-moss/15 bg-lime font-display text-base text-moss-deep transition hover:border-moss/35 hover:bg-lime/80 sm:grid"
                 title={viewer.email}
               >
                 {initial}
-              </span>
+              </Link>
               <SignOutButton />
             </div>
           ) : (

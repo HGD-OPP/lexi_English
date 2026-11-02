@@ -11,12 +11,14 @@ datasource db {
 }
 
 model User {
-  id        String   @id @db.Uuid
-  email     String   @unique
-  name      String?
-  avatarUrl String?  @map("avatar_url")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            String    @id @db.Uuid
+  email         String    @unique
+  name          String?
+  avatarUrl     String?   @map("avatar_url")
+  studyStreak   Int       @default(0) @map("study_streak")
+  lastStudyDate DateTime? @map("last_study_date") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   userWords UserWord[]
 

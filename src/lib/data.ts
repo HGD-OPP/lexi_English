@@ -351,40 +351,6 @@ const EMPTY_STATS: LearningStats = {
   streak: 0,
 };
 
-const streakDayFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Shanghai",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-function streakDayKey(date: Date) {
-  return streakDayFormatter.format(date);
-}
-
-function calculateStreak(dates: Date[]) {
-  const days = new Set(dates.map(streakDayKey));
-  if (days.size === 0) {
-    return 0;
-  }
-
-  let cursor = new Date();
-  let streak = 0;
-
-  // A streak survives until the end of today; if today is empty, start
-  // counting from yesterday so a morning visit still shows yesterday's run.
-  if (!days.has(streakDayKey(cursor))) {
-    cursor = new Date(cursor.getTime() - 24 * 60 * 60 * 1000);
-  }
-
-  while (days.has(streakDayKey(cursor))) {
-    streak += 1;
-    cursor = new Date(cursor.getTime() - 24 * 60 * 60 * 1000);
-  }
-
-  return streak;
-}
-
 export async function getLearningStats(
   viewer: Viewer | null,
 ): Promise<StatsResult> {
@@ -403,7 +369,7 @@ export async function getLearningStats(
 
   try {
     const now = new Date();
-    const [totalWords, studied, mastered, due, bookmarked, reviewed] =
+    const [totalWords, studied, mastered, due, bookmarked, profile] =
       await Promise.all([
         prisma.word.count(),
         viewer
@@ -428,14 +394,11 @@ export async function getLearningStats(
             })
           : Promise.resolve(0),
         viewer
-          ? prisma.userWord.findMany({
-              where: {
-                userId: viewer.id,
-                lastReviewedAt: { not: null },
-              },
-              select: { lastReviewedAt: true },
+          ? prisma.user.findUnique({
+              where: { id: viewer.id },
+              select: { studyStreak: true },
             })
-          : Promise.resolve([]),
+          : Promise.resolve(null),
       ]);
 
     return {
@@ -446,11 +409,7 @@ export async function getLearningStats(
         mastered,
         due,
         bookmarked,
-        streak: calculateStreak(
-          reviewed
-            .map((row) => row.lastReviewedAt)
-            .filter((date): date is Date => date !== null),
-        ),
+        streak: Math.max(0, profile?.studyStreak ?? 0),
       },
     };
   } catch (error) {

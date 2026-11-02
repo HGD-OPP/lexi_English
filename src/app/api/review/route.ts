@@ -4,6 +4,7 @@ import { ApiError, jsonError, readJson } from "@/lib/api-error";
 import { requireViewer } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { applyReview } from "@/lib/sm2";
+import { advanceStudyStreak } from "@/lib/study-streak";
 import type { ReviewRating, UserWordSnapshot } from "@/lib/types";
 
 const RATINGS: ReviewRating[] = ["known", "fuzzy", "unknown"];
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
         "rating 必须是 known、fuzzy 或 unknown。",
       );
     }
+    const rating = body.rating;
 
     const word = await prisma.word.findUnique({
       where: { id: body.wordId },
@@ -38,59 +40,99 @@ export async function POST(request: Request) {
       throw new ApiError(404, "WORD_NOT_FOUND", "这个单词不存在。");
     }
 
-    const existing = await prisma.userWord.findUnique({
-      where: {
-        userId_wordId: { userId: viewer.id, wordId: word.id },
-      },
-    });
+    const now = new Date();
 
-    const outcome = applyReview(
-      {
-        easeFactor: existing?.easeFactor ?? 2.5,
-        interval: existing?.interval ?? 1,
-        repetitions: existing?.repetitions ?? 0,
-        mastery: existing?.mastery ?? 0,
-      },
-      body.rating,
-    );
+    const result = await prisma.$transaction(async (tx) => {
+      // Serialize streak updates for one user so two fast submissions cannot
+      // both read yesterday's date and increment twice.
+      const lockedUser = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "users" WHERE "id" = ${viewer.id}::uuid FOR UPDATE
+      `;
+      if (lockedUser.length === 0) {
+        throw new ApiError(500, "USER_NOT_FOUND", "用户资料尚未初始化。");
+      }
 
-    const saved = await prisma.userWord.upsert({
-      where: {
-        userId_wordId: { userId: viewer.id, wordId: word.id },
-      },
-      update: {
-        easeFactor: outcome.easeFactor,
-        interval: outcome.interval,
-        repetitions: outcome.repetitions,
-        mastery: outcome.mastery,
-        nextReviewAt: outcome.nextReviewAt,
-        lastRating: outcome.lastRating,
-        lastReviewedAt: new Date(),
-      },
-      create: {
-        userId: viewer.id,
-        wordId: word.id,
-        easeFactor: outcome.easeFactor,
-        interval: outcome.interval,
-        repetitions: outcome.repetitions,
-        mastery: outcome.mastery,
-        nextReviewAt: outcome.nextReviewAt,
-        lastRating: outcome.lastRating,
-        lastReviewedAt: new Date(),
-      },
+      const existing = await tx.userWord.findUnique({
+        where: {
+          userId_wordId: { userId: viewer.id, wordId: word.id },
+        },
+      });
+
+      const outcome = applyReview(
+        {
+          easeFactor: existing?.easeFactor ?? 2.5,
+          interval: existing?.interval ?? 1,
+          repetitions: existing?.repetitions ?? 0,
+          mastery: existing?.mastery ?? 0,
+        },
+        rating,
+        now,
+      );
+
+      const saved = await tx.userWord.upsert({
+        where: {
+          userId_wordId: { userId: viewer.id, wordId: word.id },
+        },
+        update: {
+          easeFactor: outcome.easeFactor,
+          interval: outcome.interval,
+          repetitions: outcome.repetitions,
+          mastery: outcome.mastery,
+          nextReviewAt: outcome.nextReviewAt,
+          lastRating: outcome.lastRating,
+          lastReviewedAt: now,
+        },
+        create: {
+          userId: viewer.id,
+          wordId: word.id,
+          easeFactor: outcome.easeFactor,
+          interval: outcome.interval,
+          repetitions: outcome.repetitions,
+          mastery: outcome.mastery,
+          nextReviewAt: outcome.nextReviewAt,
+          lastRating: outcome.lastRating,
+          lastReviewedAt: now,
+        },
+      });
+
+      const currentUser = await tx.user.findUnique({
+        where: { id: viewer.id },
+        select: { studyStreak: true, lastStudyDate: true },
+      });
+      if (!currentUser) {
+        throw new ApiError(500, "USER_NOT_FOUND", "用户资料尚未初始化。");
+      }
+
+      const streak = advanceStudyStreak(currentUser, now);
+      if (streak.changed) {
+        await tx.user.update({
+          where: { id: viewer.id },
+          data: {
+            studyStreak: streak.studyStreak,
+            lastStudyDate: streak.lastStudyDate,
+          },
+        });
+      }
+
+      return { saved, streak, rating: outcome.lastRating };
     });
 
     const userWord: UserWordSnapshot = {
-      mastery: saved.mastery,
-      isBookmarked: saved.isBookmarked,
-      interval: saved.interval,
-      repetitions: saved.repetitions,
-      easeFactor: saved.easeFactor,
-      nextReviewAt: saved.nextReviewAt.toISOString(),
-      lastRating: saved.lastRating,
+      mastery: result.saved.mastery,
+      isBookmarked: result.saved.isBookmarked,
+      interval: result.saved.interval,
+      repetitions: result.saved.repetitions,
+      easeFactor: result.saved.easeFactor,
+      nextReviewAt: result.saved.nextReviewAt.toISOString(),
+      lastRating: result.saved.lastRating,
     };
 
-    return NextResponse.json({ userWord, rating: outcome.lastRating });
+    return NextResponse.json({
+      userWord,
+      rating: result.rating,
+      studyStreak: result.streak.studyStreak,
+      studyDay: result.streak.studyDay,
+    });
   } catch (error) {
     return jsonError(error);
   }
