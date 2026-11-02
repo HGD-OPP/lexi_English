@@ -8,7 +8,11 @@ import {
 } from "../src/lib/wordbook-data";
 
 const prisma = new PrismaClient();
-const MIN_SEED_WORDS = 100;
+const MIN_SEED_WORDS = 400;
+const EXPECTED_NEW_BOOKS = new Map([
+  ["junior-foundation", 100],
+  ["cet4-core", 200],
+]);
 
 function assertSeedWord(bookSlug: string, word: SeedWord) {
   const missing = [
@@ -37,6 +41,18 @@ async function main() {
     throw new Error(
       `Expected at least ${MIN_SEED_WORDS} seed words, found ${totalSeedWords}.`,
     );
+  }
+
+  for (const [slug, expectedCount] of EXPECTED_NEW_BOOKS) {
+    const book = wordbookSeed.find((item) => item.slug === slug);
+    if (!book) {
+      throw new Error(`Missing seed word book: ${slug}`);
+    }
+    if (book.words.length !== expectedCount) {
+      throw new Error(
+        `Expected ${expectedCount} words in ${slug}, found ${book.words.length}.`,
+      );
+    }
   }
 
   const posCounts = new Map<string, number>();

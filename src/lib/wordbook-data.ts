@@ -1,3 +1,4 @@
+import { examWordBooks } from "./vocabulary-exam";
 import { extraWordsByBook } from "./vocabulary-extra";
 
 export type SeedWord = {
@@ -26,7 +27,7 @@ export type SeedWordBook = {
  * The same catalogue powers the Prisma seed and the zero-config preview mode.
  * Keeping it in one place means `npm run dev` is useful before Supabase exists.
  */
-export const wordbookSeed: SeedWordBook[] = [
+const coreWordBooks: SeedWordBook[] = [
   {
     slug: "everyday-essentials",
     title: "Everyday Essentials",
@@ -291,10 +292,17 @@ export const wordbookSeed: SeedWordBook[] = [
       },
     ],
   },
-].map((book) => ({
+];
+
+const mergedCoreBooks: SeedWordBook[] = coreWordBooks.map((book) => ({
   ...book,
   words: [...book.words, ...(extraWordsByBook[book.slug] ?? [])],
 }));
+
+export const wordbookSeed: SeedWordBook[] = [
+  ...mergedCoreBooks,
+  ...examWordBooks,
+];
 
 export function findSeedBook(slug: string) {
   return wordbookSeed.find((book) => book.slug === slug);

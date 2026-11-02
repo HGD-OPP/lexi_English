@@ -10,7 +10,7 @@
 
 | 模块 | 说明 |
 | --- | --- |
-| 词书 | 首页展示 4 本内置词书，进入词书查看单词列表、掌握进度与待复习数量 |
+| 词书 | 首页展示 6 本内置词书（日常、商务、雅思、旅行 + 初中 100 词、四级 200 词），进入词书查看单词列表、掌握进度与待复习数量 |
 | 闪卡 | 全屏 3D 翻转；正面英文 + 音标 + 词性 + 浏览器 `SpeechSynthesis` 发音，背面中文释义 + 词性 + 例句 + 记忆提示 |
 | 拼写测试 | 卡背输入拼写后回车：正确播放 `Excellent!` 并标记「认识」；错误播放 `Keep going!`、显示红色提示和正确拼写，并标记「不认识」 |
 | 选择题模式 | 闪卡顶部切换「拼写模式 / 选择题模式」；选择题背面随机给出 4 个中文释义（1 正确 + 3 个随机干扰项），点正确自动标记「认识」，点错误标红正确项并标记「不认识」 |
@@ -24,7 +24,7 @@
 | 连续打卡 | 每次提交评分时按「今天已学不变 / 昨天学过 +1 / 断签重置为 1」更新 `User.studyStreak` 与 `User.lastStudyDate` |
 | AI 记忆法 | 卡背先展示种子词库自带的记忆提示；登录后点击「用 AI 生成三种记忆法」才调用 `/api/generate-memory`，生成「联想 / 词根 / 谐音」三种风格并缓存 |
 | 账号 | Supabase Auth 邮箱密码注册/登录；所有 `UserWord` 读写绑定当前登录用户 |
-| 预览模式 | 未配置数据库或 Supabase 时，页面仍可用内置 100 个单词跑通浏览与闪卡（登录/保存不可用） |
+| 预览模式 | 未配置数据库或 Supabase 时，页面仍可用内置 400 个单词跑通浏览与闪卡（登录/保存不可用） |
 
 ---
 
@@ -68,11 +68,15 @@ Copy-Item .env.example .env
 # 应用已有迁移（首次会创建四张表）
 npx prisma migrate dev
 
-# 写入 4 本词书、100 个单词
+# 写入 6 本词书、400 个单词（含初中 100 词、四级 200 词）
 npx prisma db seed
 ```
 
-> 如果数据库已经初始化过，重新执行 `npx prisma db seed`（或 `npm run db:seed`）即可增量更新：按 `slug` / `wordBookId + spelling` upsert，已有 24 个词会被补全，新增的 76 个词会插入；不会删除你库中不在种子里的词。
+> 如果数据库已经初始化过，重新执行 `npx prisma db seed`（或 `npm run db:seed`）即可增量更新：按 `slug` / `wordBookId + spelling` upsert，新增的两本词书会自动创建，已有单词会更新释义/例句，不会删除你库中不在种子里的词。
+>
+> 新增的「初中词汇」「四级核心」是独立词书，slug 分别为 `junior-foundation`、`cet4-core`；它们与原有四本词书并存，不覆盖原有进度。
+>
+> 数据量：6 本词书共 400 词，静态词库源码约 56 KB；写入 Postgres 后仍远小于 Supabase 免费版 500 MB 限制，seed 不调用任何外部 AI / 付费接口。
 >
 > 如果你修改了 `prisma/schema.prisma`，用 `npx prisma migrate dev --name <变更名>` 生成新迁移。
 > 生产环境只执行 `npx prisma migrate deploy`，不要执行 `migrate dev`。
@@ -274,8 +278,11 @@ npm start
 │  │  ├─ study-streak.ts            # Asia/Shanghai 学习日与连续打卡推进
 │  │  ├─ supabase/{client,server,config}.ts
 │  │  ├─ api-error.ts / redirect.ts
-│  │  ├─ wordbook-data.ts           # 4 本词书 × 25 词（共 100 词）种子
-│  │  ├─ vocabulary-extra.ts        # 扩充的 76 个高频词
+│  │  ├─ wordbook-data.ts           # 6 本词书 / 400 词种子入口
+│  │  ├─ vocabulary-extra.ts        # 原 4 本词书扩充的 76 个高频词
+│  │  ├─ vocabulary-junior.ts       # 初中基础 100 词（静态）
+│  │  ├─ vocabulary-cet4.ts         # 四级核心 200 词（静态）
+│  │  ├─ vocabulary-exam.ts         # 初中 / 四级两本新词书定义
 │  │  └─ types.ts
 │  └─ proxy.ts                      # Supabase session 刷新（Next 16 的 middleware）
 ├─ .env.example
@@ -356,8 +363,9 @@ Remove-Item Env:DATABASE_URL
 
 ### 5. 部署后自检
 
-- `/` 能看到 4 本词书（数据库已 seed 时不再显示 Preview 标记）
+- `/` 能看到 6 本词书（数据库已 seed 时不再显示 Preview 标记；含「初中词汇」「四级核心」）
 - 注册 → 邮箱确认 → 登录
+- 进入「初中词汇」应看到 100 词，进入「四级核心」应看到 200 词；每张卡都显示词性、释义和双语例句
 - 进入词书 → 点单词 → 翻转 → 发音 → 评分
 - 新账号首次进入时，词书只显示未学习词；点「认识」后刷新，该词不再出现（排到至少 2 天后）
 - 点「不认识」后，队列为空会显示约 5 分钟后重现；等待或刷新后该词重新出现，直到点「认识」
