@@ -38,7 +38,7 @@ export default async function BookDetailPage({ params }: BookPageProps) {
     notFound();
   }
 
-  const { book, words } = result.detail;
+  const { book, words, pendingToday, nextReviewAt } = result.detail;
   const canSave = Boolean(viewer);
 
   return (
@@ -143,10 +143,14 @@ export default async function BookDetailPage({ params }: BookPageProps) {
       </div>
 
       <WordList
+        key={`${book.id}:${words.map((word) => word.id).join(",")}`}
         words={words}
         bookTitle={book.title}
         canSave={canSave}
         source={result.source}
+        totalWords={book.wordCount}
+        pendingToday={pendingToday}
+        nextReviewAt={nextReviewAt}
       />
     </div>
   );

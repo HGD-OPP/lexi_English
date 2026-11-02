@@ -13,9 +13,12 @@
 | 词书 | 首页展示 4 本内置词书，进入词书查看单词列表、掌握进度与待复习数量 |
 | 闪卡 | 全屏 3D 翻转；正面英文 + 音标 + 词性 + 浏览器 `SpeechSynthesis` 发音，背面中文释义 + 词性 + 例句 + 记忆提示 |
 | 拼写测试 | 卡背输入拼写后回车：正确播放 `Excellent!` 并标记「认识」；错误播放 `Keep going!`、显示红色提示和正确拼写，并标记「不认识」 |
+| 选择题模式 | 闪卡顶部切换「拼写模式 / 选择题模式」；选择题背面随机给出 4 个中文释义（1 正确 + 3 个随机干扰项），点正确自动标记「认识」，点错误标红正确项并标记「不认识」 |
 | 语音反馈 | 直接点「认识 / 模糊 / 不认识」也会播放对应鼓励语，与拼写测试共用 `SpeechSynthesis` |
 | 快捷操作 | 点击卡片或空格翻面，`←` / `→` 切词，`Esc` 关闭；输入框内只处理 Esc，方向键和空格不误触 |
 | 评分 | 「认识 / 模糊 / 不认识」写入 `UserWord`，按 SM-2 规则更新间隔、easeFactor、repetitions 与掌握度 |
+| 今日队列 | 词书只展示「到期复习 + 从未学习」的单词；认识排到未来，不认识 5 分钟后回到今日队列，直到认识为止 |
+| 完成提示 | 今日队列为空时显示「今日任务已完成」；若有 5 分钟后重现的词，显示待重学数量与刷新入口 |
 | 生词本 | 卡片右上角心形收藏；`/bookmarks` 集中查看、移除、一键闪卡复习 |
 | 个人中心 | `/dashboard` 展示昵称、累计掌握单词数、连续打卡天数、已学习/待复习与总进度 |
 | 连续打卡 | 每次提交评分时按「今天已学不变 / 昨天学过 +1 / 断签重置为 1」更新 `User.studyStreak` 与 `User.lastStudyDate` |
@@ -180,7 +183,7 @@ npm start
 
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
-| `GET` | `/api/words?book=<slug>&random=1&limit=20` | 否 | 按词书筛选、随机抽词；返回 `{ words, total, source }` |
+| `GET` | `/api/words?book=<slug>&random=1&limit=20&scope=review` | 否（登录后按用户过滤） | 默认只返回当前用户「到期 + 未学习」的今日队列；`scope=all` 用于选择题干扰项等需要全量词库的场景；返回 `{ words, total, totalWords, completed, pendingToday, nextReviewAt, source }` |
 | `POST` | `/api/review` | 是 | `{ wordId, rating: "known" \| "fuzzy" \| "unknown" }`，更新 SM-2、打卡天数，返回 `{ userWord, rating, studyStreak, studyDay }` |
 | `GET` | `/api/bookmarks` | 是 | 当前用户收藏列表 `{ bookmarks, source }` |
 | `POST` | `/api/bookmarks` | 是 | `{ wordId, bookmarked?: boolean }`，upsert 收藏状态 |
@@ -198,13 +201,21 @@ npm start
 
 ### SM-2 规则
 
-| 评分 | interval | repetitions | easeFactor | mastery |
-| --- | --- | --- | --- | --- |
-| 认识 | `max(2, round(当前 interval × 2))` 天 | +1 | +0.1（上限 3.0） | +1（上限 5） |
-| 模糊 | 不变 | 不变 | −0.05（下限 1.3） | 不变 |
-| 不认识 | 重置为 1 天 | 重置为 0 | −0.2（下限 1.3） | 重置为 0 |
+| 评分 | interval | repetitions | easeFactor | mastery | nextReviewAt |
+| --- | --- | --- | --- | --- | --- |
+| 认识 | `max(2, round(当前 interval × 2))` 天 | +1 | +0.1（上限 3.0） | +1（上限 5） | 当前时间 + interval 天（至少 2 天后） |
+| 模糊 | 不变（至少 1 天） | 不变 | −0.05（下限 1.3） | 不变 | 当前时间 + interval 天 |
+| 不认识 | 0（进入重学队列） | 重置为 0 | −0.2（下限 1.3） | 重置为 0 | 当前时间 + 5 分钟 |
 
-`nextReviewAt = 当前时间 + interval 天`。掌握度达到 `MASTERED_AT = 4` 视为已掌握。
+`nextReviewAt` 是完整的日期时间；今日队列的过滤条件是 `nextReviewAt <= now` 或从未生成 `UserWord`。不认识的词 5 分钟后再次到期，直到某次点「认识」后按至少 2 天排期。掌握度达到 `MASTERED_AT = 4` 视为已掌握。
+
+### 今日队列与完成判定
+
+- 词书详情与 `/api/words` 默认只返回两类词：`UserWord.nextReviewAt <= now` 的到期词，以及没有 `UserWord` 的未学习词。
+- 认识的词进入未来（首次 2 天、之后 4/8… 天），因此明天不会重复出现在队列里；中途退出后，已认识的词也不会再出现。
+- 不认识的词 `interval = 0`、`nextReviewAt = now + 5 分钟`；5 分钟后重新进入队列。
+- 队列为空时，如果还有今天稍后要重现的不认识词，页面显示「还有 N 个词将在约 X 分钟后回到队列」；否则显示「今日任务已完成」。
+- `GET /api/words` 的 `completed` 只在队列为空且没有待重学词时为 `true`；`pendingToday` 是今日稍后重现的数量。
 
 ### 连续学习天数
 
@@ -249,7 +260,7 @@ npm start
 │  │     ├─ bookmarks/route.ts
 │  │     └─ generate-memory/route.ts
 │  ├─ components/
-│  │  ├─ flashcard/flashcard.tsx    # 3D 闪卡、发音、评分、收藏、AI 记忆
+│  │  ├─ flashcard/flashcard.tsx    # 3D 闪卡、拼写/选择题、发音、评分、收藏、AI 记忆
 │  │  ├─ word-list.tsx              # 筛选/搜索/开始复习
 │  │  ├─ bookmarks-view.tsx         # 生词本列表与复习
 │  │  ├─ auth/auth-form.tsx         # 邮箱密码表单
@@ -348,7 +359,11 @@ Remove-Item Env:DATABASE_URL
 - `/` 能看到 4 本词书（数据库已 seed 时不再显示 Preview 标记）
 - 注册 → 邮箱确认 → 登录
 - 进入词书 → 点单词 → 翻转 → 发音 → 评分
+- 新账号首次进入时，词书只显示未学习词；点「认识」后刷新，该词不再出现（排到至少 2 天后）
+- 点「不认识」后，队列为空会显示约 5 分钟后重现；等待或刷新后该词重新出现，直到点「认识」
+- 学习到一半关闭闪卡再刷新，已认识的词不再出现，未认识/到期的词仍在队列
 - 卡背输入正确/错误拼写，确认语音鼓励、红色纠错提示与自动评分都符合预期
+- 切到「选择题模式」翻面，确认 4 个中文释义不重复；点正确项自动进入下一题，点错误项能看到红色正确项与「不认识」记录
 - 心形收藏 → `/bookmarks` 能看到并移除
 - 登录状态下翻到卡背，点击「用 AI 生成三种记忆法」（无 Key 时显示离线提示）
 - 退出登录后 `/bookmarks` 会显示登录引导，不展示任何收藏数据

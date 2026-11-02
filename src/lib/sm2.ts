@@ -15,6 +15,7 @@ export type ReviewOutcome = ReviewState & {
 const MIN_EASE = 1.3;
 const MAX_EASE = 3;
 const MAX_MASTERY = 5;
+export const RELEARN_MINUTES = 5;
 
 function clampEase(value: number) {
   return Math.min(MAX_EASE, Math.max(MIN_EASE, Number(value.toFixed(2))));
@@ -26,7 +27,8 @@ function clampMastery(value: number) {
 
 /**
  * A deliberately small SM-2 variant, matching the product rules:
- * known doubles the interval, fuzzy keeps it, unknown resets to one day.
+ * known doubles the interval, fuzzy keeps it, unknown enters a short
+ * relearning queue (five minutes) so it resurfaces later today.
  */
 export function applyReview(
   current: ReviewState,
@@ -54,13 +56,19 @@ export function applyReview(
     repetitions = current.repetitions;
     mastery = current.mastery;
   } else {
-    interval = 1;
+    interval = 0;
     repetitions = 0;
     mastery = 0;
   }
 
   const nextReviewAt = new Date(now);
-  nextReviewAt.setUTCDate(nextReviewAt.getUTCDate() + interval);
+  if (rating === "unknown") {
+    nextReviewAt.setTime(
+      nextReviewAt.getTime() + RELEARN_MINUTES * 60 * 1000,
+    );
+  } else {
+    nextReviewAt.setUTCDate(nextReviewAt.getUTCDate() + interval);
+  }
 
   return {
     easeFactor,

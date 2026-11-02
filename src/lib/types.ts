@@ -44,6 +44,10 @@ export type WordWithProgress = WordView & {
 export type WordBookDetail = {
   book: WordBookSummary;
   words: WordWithProgress[];
+  /** Unknown words that will re-enter the queue later today. */
+  pendingToday: number;
+  nextReviewAt: string | null;
+  completed: boolean;
 };
 
 export type LearningStats = {

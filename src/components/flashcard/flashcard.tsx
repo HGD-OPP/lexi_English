@@ -32,10 +32,25 @@ import type {
   UserWordSnapshot,
   WordWithProgress,
 } from "@/lib/types";
+import { RELEARN_MINUTES } from "@/lib/sm2";
 
 type SpellingResult = {
   status: "correct" | "wrong";
   submitted: string;
+};
+
+type StudyMode = "spelling" | "choice";
+
+type ChoiceOption = {
+  id: string;
+  meaning: string;
+  isCorrect: boolean;
+};
+
+type ChoiceResult = {
+  selectedId: string;
+  correctId: string;
+  status: "correct" | "wrong";
 };
 
 type FlashcardProps = {
@@ -46,6 +61,8 @@ type FlashcardProps = {
   onClose: () => void;
   onProgress?: (wordId: string, userWord: UserWordSnapshot) => void;
   onBookmarkChange?: (wordId: string, bookmarked: boolean) => void;
+  /** Refresh the server-side queue instead of replaying stale cards. */
+  onRestart?: () => void;
 };
 
 const ratingOptions: Array<{
@@ -81,6 +98,77 @@ const ratingOptions: Array<{
   },
 ];
 
+const studyModes: Array<{ id: StudyMode; label: string }> = [
+  { id: "spelling", label: "拼写模式" },
+  { id: "choice", label: "选择题模式" },
+];
+
+const FALLBACK_DISTRACTOR_MEANINGS = [
+  "n. 责任；职责",
+  "v. 改善；提高",
+  "adj. 安静的；平静的",
+  "n. 机会；时机",
+  "v. 决定；选定",
+  "adj. 诚实的；正直的",
+  "n. 经验；经历",
+  "v. 提醒；使想起",
+  "adj. 有效的；高效的",
+  "n. 目的地；终点",
+];
+
+function shuffle<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
+}
+
+function buildChoiceOptions(
+  correct: WordWithProgress,
+  pool: Array<{ id: string; meaning: string }>,
+): ChoiceOption[] {
+  const usedMeanings = new Set([correct.meaning.trim()]);
+  const distractors: ChoiceOption[] = [];
+
+  for (const candidate of shuffle(pool)) {
+    const meaning = candidate.meaning.trim();
+    if (
+      !meaning ||
+      candidate.id === correct.id ||
+      usedMeanings.has(meaning)
+    ) {
+      continue;
+    }
+    usedMeanings.add(meaning);
+    distractors.push({ id: candidate.id, meaning, isCorrect: false });
+    if (distractors.length === 3) {
+      break;
+    }
+  }
+
+  for (const meaning of FALLBACK_DISTRACTOR_MEANINGS) {
+    if (distractors.length === 3) {
+      break;
+    }
+    if (usedMeanings.has(meaning)) {
+      continue;
+    }
+    usedMeanings.add(meaning);
+    distractors.push({
+      id: `fallback-${distractors.length}`,
+      meaning,
+      isCorrect: false,
+    });
+  }
+
+  return shuffle([
+    { id: correct.id, meaning: correct.meaning, isCorrect: true },
+    ...distractors.slice(0, 3),
+  ]);
+}
+
 function localFallback(word: WordWithProgress): MemoryHints {
   const shortMeaning = word.meaning.split(/[；;]/)[0]?.trim() || word.meaning;
   return {
@@ -100,6 +188,7 @@ export function Flashcard({
   onClose,
   onProgress,
   onBookmarkChange,
+  onRestart,
 }: FlashcardProps) {
   const safeInitial = Math.min(Math.max(initialIndex, 0), words.length - 1);
   const [index, setIndex] = useState(safeInitial);
@@ -118,16 +207,22 @@ export function Flashcard({
   const [spellingResult, setSpellingResult] = useState<SpellingResult | null>(
     null,
   );
+  const [mode, setMode] = useState<StudyMode>("spelling");
+  const [choiceOptions, setChoiceOptions] = useState<ChoiceOption[]>([]);
+  const [choiceResult, setChoiceResult] = useState<ChoiceResult | null>(null);
   const [finished, setFinished] = useState(false);
   const [reviewedCount, setReviewedCount] = useState(0);
   const advanceTimer = useRef<number | null>(null);
   const inFlightMemory = useRef<Set<string>>(new Set());
+  const choiceRequestId = useRef(0);
 
   const word = words[index] ?? words[0];
   const memory = word ? memories[word.id] : undefined;
   const memoryLoading = word ? Boolean(loadingMemoryIds[word.id]) : false;
   const bookmarked = word?.userWord?.isBookmarked ?? false;
   const progress = words.length > 0 ? ((index + 1) / words.length) * 100 : 0;
+  const choiceLoading =
+    mode === "choice" && flipped && choiceOptions.length === 0;
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -153,9 +248,26 @@ export function Flashcard({
     setFeedback(null);
     setSpellingAnswer("");
     setSpellingResult(null);
+    setChoiceOptions([]);
+    setChoiceResult(null);
+    choiceRequestId.current += 1;
     setNotice(null);
     setFinished(false);
     setSaving(false);
+  }
+
+  function changeMode(nextMode: StudyMode) {
+    if (nextMode === mode || saving) {
+      return;
+    }
+    choiceRequestId.current += 1;
+    setMode(nextMode);
+    setFeedback(null);
+    setNotice(null);
+    setSpellingAnswer("");
+    setSpellingResult(null);
+    setChoiceOptions([]);
+    setChoiceResult(null);
   }
 
   useEffect(() => {
@@ -259,6 +371,61 @@ export function Flashcard({
       });
   }
 
+  useEffect(() => {
+    if (
+      mode !== "choice" ||
+      !flipped ||
+      !word ||
+      choiceOptions.length >= 4
+    ) {
+      return;
+    }
+
+    const targetWord = word;
+    const requestId = ++choiceRequestId.current;
+    const controller = new AbortController();
+
+    async function loadChoiceOptions() {
+      let pool: Array<{ id: string; meaning: string }> = [];
+
+      try {
+        const response = await fetch(
+          "/api/words?random=1&limit=60&scope=all",
+          {
+            signal: controller.signal,
+          },
+        );
+        if (response.ok) {
+          const payload = (await response.json()) as {
+            words?: Array<{ id: string; meaning: string }>;
+          };
+          if (Array.isArray(payload.words)) {
+            pool = payload.words;
+          }
+        }
+      } catch {
+        if (controller.signal.aborted) {
+          return;
+        }
+      }
+
+      if (requestId !== choiceRequestId.current) {
+        return;
+      }
+
+      const localPool = words.map((item) => ({
+        id: item.id,
+        meaning: item.meaning,
+      }));
+      const options = buildChoiceOptions(targetWord, [...pool, ...localPool]);
+      setChoiceOptions(options);
+    }
+
+    void loadChoiceOptions();
+    return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, flipped, word?.id, choiceOptions.length, words]);
+
   function speakPhrase(text: string, rate = 0.9) {
     if (typeof window === "undefined" || !window.speechSynthesis) {
       setNotice("当前浏览器不支持语音朗读。");
@@ -330,9 +497,11 @@ export function Flashcard({
       setReviewedCount((count) => count + 1);
       setFeedback(
         options.feedback ??
-          (saved.interval === 1
-            ? "已记录 · 明天再见"
-            : `已记录 · ${saved.interval} 天后复习`),
+          (rating === "unknown" || saved.interval === 0
+            ? `已记录 · ${RELEARN_MINUTES} 分钟后再来`
+            : saved.interval === 1
+              ? "已记录 · 明天再见"
+              : `已记录 · ${saved.interval} 天后复习`),
       );
 
       advanceTimer.current = window.setTimeout(() => {
@@ -344,6 +513,9 @@ export function Flashcard({
           setFeedback(null);
           setSpellingAnswer("");
           setSpellingResult(null);
+          setChoiceOptions([]);
+          setChoiceResult(null);
+          choiceRequestId.current += 1;
         }
         setSaving(false);
         advanceTimer.current = null;
@@ -385,11 +557,39 @@ export function Flashcard({
     void handleReview(isCorrect ? "known" : "unknown", {
       feedback: isCorrect
         ? "Excellent! · 已标记为认识"
-        : "Keep going! · 已标记为不认识",
+        : `Keep going! · 已标记为不认识，${RELEARN_MINUTES} 分钟后再来`,
       delayMs: isCorrect ? 1400 : 2200,
     }).then((saved) => {
       if (!saved) {
         setSpellingResult(null);
+      }
+    });
+  }
+
+  function handleChoiceSelect(option: ChoiceOption) {
+    if (!word || !flipped || saving || choiceLoading || choiceResult) {
+      return;
+    }
+    if (!canSave) {
+      setNotice("登录后才能保存选择题结果。");
+      return;
+    }
+
+    const isCorrect = option.isCorrect;
+    setChoiceResult({
+      selectedId: option.id,
+      correctId: word.id,
+      status: isCorrect ? "correct" : "wrong",
+    });
+
+    void handleReview(isCorrect ? "known" : "unknown", {
+      feedback: isCorrect
+        ? "Excellent! · 已标记为认识"
+        : `Keep going! · 已标记为不认识，${RELEARN_MINUTES} 分钟后再来`,
+      delayMs: isCorrect ? 900 : 2200,
+    }).then((saved) => {
+      if (!saved) {
+        setChoiceResult(null);
       }
     });
   }
@@ -432,11 +632,18 @@ export function Flashcard({
   }
 
   function restart() {
+    if (onRestart) {
+      onRestart();
+      return;
+    }
     setIndex(0);
     setFlipped(false);
     setFeedback(null);
     setSpellingAnswer("");
     setSpellingResult(null);
+    setChoiceOptions([]);
+    setChoiceResult(null);
+    choiceRequestId.current += 1;
     setNotice(null);
     setFinished(false);
     setReviewedCount(0);
@@ -525,6 +732,36 @@ export function Flashcard({
           />
         </div>
 
+        {!finished ? (
+          <div className="flex justify-center pb-3">
+            <div
+              className="inline-flex items-center gap-1 rounded-full border border-paper/15 bg-paper/5 p-1"
+              role="group"
+              aria-label="闪卡学习模式"
+            >
+              {studyModes.map((option) => {
+                const active = mode === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => changeMode(option.id)}
+                    disabled={saving}
+                    aria-pressed={active}
+                    className={`inline-flex h-8 items-center justify-center rounded-full px-3.5 text-[11px] font-medium transition sm:text-xs ${
+                      active
+                        ? "bg-paper text-ink shadow-sm"
+                        : "text-paper/60 hover:text-paper"
+                    } disabled:cursor-not-allowed disabled:opacity-45`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         {finished ? (
           <div className="my-auto py-10">
             <div className="animate-fade-up rounded-[2rem] border border-paper/10 bg-cream p-8 text-center shadow-[var(--shadow-float)] sm:p-12">
@@ -547,7 +784,7 @@ export function Flashcard({
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-line bg-cream px-5 text-sm transition hover:border-moss/30"
                 >
                   <RotateCcw className="size-4" strokeWidth={1.8} />
-                  再来一轮
+                  {onRestart ? "刷新今日队列" : "再来一轮"}
                 </button>
                 <button
                   type="button"
@@ -652,7 +889,7 @@ export function Flashcard({
                         >
                           <div className="flex items-center justify-between gap-3 pr-14">
                             <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-ink-faint">
-                              Meaning
+                              {mode === "choice" ? "选择题" : "Meaning"}
                             </span>
                             <button
                               type="button"
@@ -667,7 +904,9 @@ export function Flashcard({
                             </button>
                           </div>
 
-                          <div className="mt-4 flex flex-wrap items-start gap-2.5">
+                          {mode === "spelling" ? (
+                            <>
+                              <div className="mt-4 flex flex-wrap items-start gap-2.5">
                             {word.partOfSpeech ? (
                               <span className="mt-0.5 inline-flex shrink-0 items-center rounded-full bg-moss/[0.08] px-2.5 py-1 font-mono text-[10px] leading-none text-moss">
                                 {word.partOfSpeech}
@@ -880,6 +1119,162 @@ export function Flashcard({
                               </div>
                             )}
                           </div>
+                            </>
+                          ) : (
+                            <div
+                              className="mt-4 flex flex-1 flex-col"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-ink-faint">
+                                Choose the meaning
+                              </p>
+                              <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                                <p className="font-display text-3xl leading-tight tracking-tight text-ink">
+                                  {word.spelling}
+                                </p>
+                                <p className="font-mono text-xs text-ink-faint">
+                                  {word.phonetic}
+                                </p>
+                              </div>
+                              <p className="mt-2 text-xs leading-5 text-ink-soft">
+                                从下面四个中文释义中，选出正确的一项。
+                              </p>
+
+                              <div className="mt-4 grid gap-2">
+                                {choiceLoading || choiceOptions.length === 0 ? (
+                                  [0, 1, 2, 3].map((item) => (
+                                    <div
+                                      key={item}
+                                      className="h-[3.25rem] animate-soft-pulse rounded-xl bg-ink/[0.06]"
+                                    />
+                                  ))
+                                ) : (
+                                  choiceOptions.map((option, optionIndex) => {
+                                    const selected =
+                                      choiceResult?.selectedId === option.id;
+                                    const selectedCorrect =
+                                      selected &&
+                                      choiceResult?.status === "correct";
+                                    const selectedWrong =
+                                      selected &&
+                                      choiceResult?.status === "wrong";
+                                    const revealCorrect =
+                                      choiceResult?.status === "wrong" &&
+                                      option.isCorrect;
+
+                                    let optionClass =
+                                      "border-line bg-cream/80 text-ink hover:border-moss/40 hover:bg-lime/25";
+                                    if (selectedCorrect) {
+                                      optionClass =
+                                        "border-moss bg-lime text-moss-deep";
+                                    } else if (revealCorrect) {
+                                      optionClass =
+                                        "border-[#c35b4a] bg-[#fbe9e4] text-[#9f3f32]";
+                                    } else if (selectedWrong) {
+                                      optionClass =
+                                        "border-[#c35b4a]/45 bg-[#fbe9e4]/70 text-[#9f3f32]";
+                                    } else if (choiceResult) {
+                                      optionClass =
+                                        "border-line/60 bg-cream/40 text-ink-faint";
+                                    }
+
+                                    return (
+                                      <button
+                                        key={option.id}
+                                        type="button"
+                                        onClick={() =>
+                                          handleChoiceSelect(option)
+                                        }
+                                        disabled={
+                                          !canSave ||
+                                          saving ||
+                                          choiceLoading ||
+                                          Boolean(choiceResult)
+                                        }
+                                        aria-pressed={selected}
+                                        className={`flex min-h-[3.25rem] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition disabled:cursor-not-allowed ${optionClass}`}
+                                      >
+                                        <span
+                                          className="grid size-6 shrink-0 place-items-center rounded-full border border-current/20 font-mono text-[10px] opacity-70"
+                                          aria-hidden="true"
+                                        >
+                                          {String.fromCharCode(65 + optionIndex)}
+                                        </span>
+                                        <span
+                                          className={`min-w-0 flex-1 leading-5 ${
+                                            selectedWrong ? "line-through" : ""
+                                          }`}
+                                        >
+                                          {option.meaning}
+                                        </span>
+                                        {selectedCorrect ? (
+                                          <Check
+                                            className="size-4 shrink-0"
+                                            strokeWidth={2}
+                                          />
+                                        ) : revealCorrect || selectedWrong ? (
+                                          <X
+                                            className="size-4 shrink-0"
+                                            strokeWidth={2}
+                                          />
+                                        ) : null}
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>
+
+                              {choiceResult ? (
+                                <div
+                                  role="status"
+                                  aria-live="polite"
+                                  className={`mt-3 rounded-xl border px-3 py-2.5 text-xs ${
+                                    choiceResult.status === "correct"
+                                      ? "border-moss/25 bg-lime/60 text-moss-deep"
+                                      : "border-[#c35b4a]/25 bg-[#fbe9e4] text-[#9f3f32]"
+                                  }`}
+                                >
+                                  <p className="flex items-center gap-1.5 font-medium">
+                                    {choiceResult.status === "correct" ? (
+                                      <Check className="size-3.5" />
+                                    ) : (
+                                      <X className="size-3.5" />
+                                    )}
+                                    {choiceResult.status === "correct"
+                                      ? "回答正确，已标记为「认识」。"
+                                      : "回答错误，已标记为「不认识」。"}
+                                  </p>
+                                  {choiceResult.status === "wrong" ? (
+                                    <p className="mt-1 leading-5">
+                                      正确答案：
+                                      <strong className="font-semibold">
+                                        {word.meaning}
+                                      </strong>
+                                    </p>
+                                  ) : null}
+                                </div>
+                              ) : null}
+
+                              {!canSave ? (
+                                <p className="mt-3 text-[11px] leading-5 text-ink-faint">
+                                  登录后才能记录答案。
+                                  <Link
+                                    href="/login"
+                                    onClick={(event) =>
+                                      event.stopPropagation()
+                                    }
+                                    className="ml-1 font-medium text-moss underline decoration-moss/30 underline-offset-4"
+                                  >
+                                    去登录
+                                  </Link>
+                                </p>
+                              ) : null}
+
+                              <p className="mt-auto pt-4 text-center text-[10px] text-ink-faint">
+                                点击选项即自动记录；答错会标出正确释义。
+                              </p>
+                            </div>
+                          )}
 
                           <p className="mt-auto pt-5 text-center text-[10px] text-ink-faint">
                             点击卡片翻回正面
@@ -915,31 +1310,39 @@ export function Flashcard({
                   )}
                 </div>
 
-                <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3">
-                  {ratingOptions.map((option) => {
-                    const Icon = option.icon;
-                    return (
-                      <button
-                        key={option.rating}
-                        type="button"
-                        onClick={() => handleReview(option.rating)}
-                        disabled={!flipped || saving}
-                        className={`group flex h-14 flex-col items-center justify-center gap-0.5 rounded-2xl border px-2 text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-35 sm:h-16 ${option.className}`}
-                      >
-                        <span className="inline-flex items-center gap-1.5">
-                          <Icon className="size-4" strokeWidth={2} />
-                          {option.label}
-                        </span>
-                        <span className="text-[9px] font-normal opacity-60 sm:text-[10px]">
-                          {option.hint}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                {mode === "spelling" ? (
+                  <div className="mt-2 grid grid-cols-3 gap-2 sm:gap-3">
+                    {ratingOptions.map((option) => {
+                      const Icon = option.icon;
+                      return (
+                        <button
+                          key={option.rating}
+                          type="button"
+                          onClick={() => handleReview(option.rating)}
+                          disabled={!flipped || saving}
+                          className={`group flex h-14 flex-col items-center justify-center gap-0.5 rounded-2xl border px-2 text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-35 sm:h-16 ${option.className}`}
+                        >
+                          <span className="inline-flex items-center gap-1.5">
+                            <Icon className="size-4" strokeWidth={2} />
+                            {option.label}
+                          </span>
+                          <span className="text-[9px] font-normal opacity-60 sm:text-[10px]">
+                            {option.hint}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-center text-[10px] text-paper/40">
+                    选择题模式：点击正确释义即自动标记「认识」，答错自动标为「不认识」。
+                  </p>
+                )}
                 {!flipped ? (
                   <p className="mt-2 text-center text-[10px] text-paper/40">
-                    先翻面看看释义，再判断自己的掌握程度。
+                    {mode === "choice"
+                      ? "先翻面，再从四个释义中选出正确答案。"
+                      : "先翻面看看释义，再判断自己的掌握程度。"}
                   </p>
                 ) : null}
               </div>

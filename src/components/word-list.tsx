@@ -5,6 +5,9 @@ import {
   Bookmark,
   Check,
   ChevronRight,
+  CircleCheck,
+  Clock,
+  RefreshCw,
   Search,
   Sparkles,
 } from "lucide-react";
@@ -22,15 +25,25 @@ import type {
 type Filter = "all" | "due" | "bookmarked";
 
 const filterLabels: Array<{ key: Filter; label: string }> = [
-  { key: "all", label: "全部" },
+  { key: "all", label: "今日" },
   { key: "due", label: "待复习" },
   { key: "bookmarked", label: "已收藏" },
 ];
 
 function isDue(word: WordWithProgress) {
   return (
-    Boolean(word.userWord) &&
-    new Date(word.userWord?.nextReviewAt ?? 0).getTime() <= Date.now()
+    !word.userWord ||
+    new Date(word.userWord.nextReviewAt).getTime() <= Date.now()
+  );
+}
+
+function minutesUntil(iso: string | null) {
+  if (!iso) {
+    return null;
+  }
+  return Math.max(
+    1,
+    Math.ceil((new Date(iso).getTime() - Date.now()) / 60_000),
   );
 }
 
@@ -39,11 +52,17 @@ export function WordList({
   bookTitle,
   canSave,
   source,
+  totalWords,
+  pendingToday,
+  nextReviewAt,
 }: {
   words: WordWithProgress[];
   bookTitle: string;
   canSave: boolean;
   source: DataSource;
+  totalWords: number;
+  pendingToday: number;
+  nextReviewAt: string | null;
 }) {
   const router = useRouter();
   const [words, setWords] = useState(initialWords);
@@ -53,6 +72,10 @@ export function WordList({
     words: WordWithProgress[];
     index: number;
   } | null>(null);
+  const [localPending, setLocalPending] = useState(0);
+  const [localNextReviewAt, setLocalNextReviewAt] = useState<string | null>(
+    null,
+  );
 
   const counts = useMemo(
     () => ({
@@ -82,6 +105,13 @@ export function WordList({
     });
   }, [words, filter, query]);
 
+  const queueFinished = words.length === 0 && totalWords > 0;
+  const effectivePending = pendingToday + localPending;
+  const effectiveNextReviewAt = [nextReviewAt, localNextReviewAt]
+    .filter((value): value is string => Boolean(value))
+    .sort()[0] ?? null;
+  const pendingMinutes = minutesUntil(effectiveNextReviewAt);
+
   function updateWord(
     wordId: string,
     updater: (word: WordWithProgress) => WordWithProgress,
@@ -102,7 +132,42 @@ export function WordList({
   }
 
   function handleProgress(wordId: string, userWord: UserWordSnapshot) {
-    updateWord(wordId, (word) => ({ ...word, userWord }));
+    const nextReview = new Date(userWord.nextReviewAt).getTime();
+    const stillDue = nextReview <= Date.now();
+
+    // Unknown words re-enter the short-term queue five minutes later. Keep a
+    // local count so the empty state does not claim "done" before that refresh.
+    if (userWord.lastRating === "unknown" && !stillDue) {
+      setLocalPending((current) => current + 1);
+      setLocalNextReviewAt((current) => {
+        if (!current) {
+          return userWord.nextReviewAt;
+        }
+        return nextReview < new Date(current).getTime()
+          ? userWord.nextReviewAt
+          : current;
+      });
+    }
+
+    // Once a word has been scheduled (known/fuzzy) or moved to the short
+    // relearning queue (unknown), it should leave today's visible list.
+    setWords((current) =>
+      stillDue
+        ? current.map((word) =>
+            word.id === wordId ? { ...word, userWord } : word,
+          )
+        : current.filter((word) => word.id !== wordId),
+    );
+    setSession((current) =>
+      current
+        ? {
+            ...current,
+            words: current.words.map((word) =>
+              word.id === wordId ? { ...word, userWord } : word,
+            ),
+          }
+        : current,
+    );
   }
 
   function handleBookmarkChange(wordId: string, bookmarked: boolean) {
@@ -234,14 +299,62 @@ export function WordList({
               );
             })}
           </div>
+        ) : queueFinished ? (
+          <div className="px-6 py-16 text-center">
+            {effectivePending > 0 ? (
+              <>
+                <span className="mx-auto grid size-12 place-items-center rounded-full bg-sun/35 text-[#7a5a22]">
+                  <Clock className="size-5" strokeWidth={1.7} />
+                </span>
+                <p className="mt-4 font-display text-xl">还差一点，别走开</p>
+                <p className="mt-1 text-xs leading-6 text-ink-soft">
+                  还有 {effectivePending} 个今天没记住的词
+                  {pendingMinutes
+                    ? `，约 ${pendingMinutes} 分钟后`
+                    : "，稍后"}{" "}
+                  会重新回到队列。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => router.refresh()}
+                  className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-cream px-4 text-xs transition hover:border-moss/30"
+                >
+                  <RefreshCw className="size-3.5" />
+                  刷新队列
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="mx-auto grid size-12 place-items-center rounded-full bg-lime/70 text-moss-deep">
+                  <CircleCheck className="size-5" strokeWidth={1.7} />
+                </span>
+                <p className="mt-4 font-display text-xl">今日任务已完成</p>
+                <p className="mt-1 text-xs leading-6 text-ink-soft">
+                  认识的词已经排到未来，明天不会再重复出现。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => router.refresh()}
+                  className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-full border border-line bg-cream px-4 text-xs transition hover:border-moss/30"
+                >
+                  <RefreshCw className="size-3.5" />
+                  刷新看看
+                </button>
+              </>
+            )}
+          </div>
         ) : (
           <div className="px-6 py-16 text-center">
             <span className="mx-auto grid size-12 place-items-center rounded-full bg-paper-deep text-ink-faint">
               <Search className="size-5" strokeWidth={1.7} />
             </span>
-            <p className="mt-4 font-display text-xl">这里暂时没有单词</p>
+            <p className="mt-4 font-display text-xl">
+              {totalWords === 0 ? "这本词书还没有单词" : "这里暂时没有单词"}
+            </p>
             <p className="mt-1 text-xs text-ink-soft">
-              换一个筛选条件，或者清空搜索词试试。
+              {totalWords === 0
+                ? "先运行 seed 把词库写进数据库。"
+                : "换一个筛选条件，或者清空搜索词试试。"}
             </p>
             <button
               type="button"
@@ -277,6 +390,7 @@ export function WordList({
           onClose={closeSession}
           onProgress={handleProgress}
           onBookmarkChange={handleBookmarkChange}
+          onRestart={closeSession}
         />
       ) : null}
     </div>

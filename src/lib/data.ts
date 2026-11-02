@@ -11,6 +11,7 @@ import type {
   WordWithProgress,
 } from "@/lib/types";
 import { findSeedBook, wordbookSeed } from "@/lib/wordbook-data";
+import { studyDayKey } from "@/lib/study-streak";
 
 export const MASTERED_AT = 4;
 
@@ -52,7 +53,7 @@ function emptySummary(
     emoji: book.emoji,
     wordCount: book.words.length,
     masteredCount: 0,
-    dueCount: 0,
+    dueCount: book.words.length,
     progress: 0,
   };
 }
@@ -93,6 +94,9 @@ function previewBookDetail(slug: string): WordBookDetail | null {
       ...previewWord(slug, index),
       userWord: null,
     })),
+    pendingToday: 0,
+    nextReviewAt: null,
+    completed: false,
   };
 }
 
@@ -147,23 +151,33 @@ export async function getWordBooks(
           select: {
             mastery: true,
             nextReviewAt: true,
+            lastRating: true,
             word: { select: { wordBookId: true } },
           },
         })
       : [];
 
+    const now = new Date();
+    const today = studyDayKey(now);
     const totalsByBook = new Map<string, ProgressTotals>();
+    const seenByBook = new Map<string, number>();
     for (const row of rows) {
-      const current = totalsByBook.get(row.word.wordBookId) ?? {
+      const bookId = row.word.wordBookId;
+      const current = totalsByBook.get(bookId) ?? {
         mastered: 0,
         due: 0,
       };
       const isMastered = row.mastery >= MASTERED_AT;
-      const isDue = row.nextReviewAt.getTime() <= Date.now();
-      totalsByBook.set(row.word.wordBookId, {
+      const isDue = row.nextReviewAt.getTime() <= now.getTime();
+      const isPendingToday =
+        row.lastRating === "unknown" &&
+        row.nextReviewAt.getTime() > now.getTime() &&
+        studyDayKey(row.nextReviewAt) === today;
+      totalsByBook.set(bookId, {
         mastered: current.mastered + (isMastered ? 1 : 0),
-        due: current.due + (isDue ? 1 : 0),
+        due: current.due + (isDue || isPendingToday ? 1 : 0),
       });
+      seenByBook.set(bookId, (seenByBook.get(bookId) ?? 0) + 1);
     }
 
     return {
@@ -171,6 +185,7 @@ export async function getWordBooks(
       books: books.map((book) => {
         const wordCount = book._count.words;
         const totals = totalsByBook.get(book.id) ?? { mastered: 0, due: 0 };
+        const seen = seenByBook.get(book.id) ?? 0;
         return {
           id: book.id,
           slug: book.slug,
@@ -182,7 +197,7 @@ export async function getWordBooks(
           emoji: book.emoji,
           wordCount,
           masteredCount: totals.mastered,
-          dueCount: totals.due,
+          dueCount: totals.due + Math.max(0, wordCount - seen),
           progress:
             wordCount > 0
               ? Math.round((totals.mastered / wordCount) * 100)
@@ -245,6 +260,30 @@ export async function getWordBookDetail(
     const rowsByWord = progressMap(rows);
     const totals = countProgress(rows);
     const wordCount = book._count.words;
+    const now = new Date();
+    const today = studyDayKey(now);
+
+    const dueRows = rows.filter(
+      (row) => row.nextReviewAt.getTime() <= now.getTime(),
+    ).length;
+    const pendingRows = rows
+      .filter(
+        (row) =>
+          row.lastRating === "unknown" &&
+          row.nextReviewAt.getTime() > now.getTime() &&
+          studyDayKey(row.nextReviewAt) === today,
+      )
+      .sort((left, right) => {
+        return left.nextReviewAt.getTime() - right.nextReviewAt.getTime();
+      });
+    const dueCount =
+      dueRows +
+      Math.max(0, wordCount - rows.length) +
+      pendingRows.length;
+    const queueWords = book.words.filter((word) => {
+      const progress = rowsByWord.get(word.id);
+      return !progress || progress.nextReviewAt.getTime() <= now.getTime();
+    });
 
     return {
       source: "database",
@@ -260,13 +299,17 @@ export async function getWordBookDetail(
           emoji: book.emoji,
           wordCount,
           masteredCount: totals.mastered,
-          dueCount: totals.due,
+          dueCount,
           progress:
             wordCount > 0
               ? Math.round((totals.mastered / wordCount) * 100)
               : 0,
         },
-        words: book.words.map((word) => {
+        pendingToday: pendingRows.length,
+        nextReviewAt: pendingRows[0]?.nextReviewAt.toISOString() ?? null,
+        completed:
+          queueWords.length === 0 && wordCount > 0 && pendingRows.length === 0,
+        words: queueWords.map((word) => {
           const progress = rowsByWord.get(word.id);
           return {
             id: word.id,
@@ -355,51 +398,75 @@ export async function getLearningStats(
   viewer: Viewer | null,
 ): Promise<StatsResult> {
   if (!hasDatabaseUrl) {
+    const totalWords = wordbookSeed.reduce(
+      (sum, book) => sum + book.words.length,
+      0,
+    );
     return {
       source: "preview",
       stats: {
         ...EMPTY_STATS,
-        totalWords: wordbookSeed.reduce(
-          (sum, book) => sum + book.words.length,
-          0,
-        ),
+        totalWords,
+        due: totalWords,
       },
     };
   }
 
   try {
     const now = new Date();
-    const [totalWords, studied, mastered, due, bookmarked, profile] =
-      await Promise.all([
-        prisma.word.count(),
-        viewer
-          ? prisma.userWord.count({ where: { userId: viewer.id } })
-          : Promise.resolve(0),
-        viewer
-          ? prisma.userWord.count({
-              where: { userId: viewer.id, mastery: { gte: MASTERED_AT } },
-            })
-          : Promise.resolve(0),
-        viewer
-          ? prisma.userWord.count({
-              where: {
-                userId: viewer.id,
-                nextReviewAt: { lte: now },
-              },
-            })
-          : Promise.resolve(0),
-        viewer
-          ? prisma.userWord.count({
-              where: { userId: viewer.id, isBookmarked: true },
-            })
-          : Promise.resolve(0),
-        viewer
-          ? prisma.user.findUnique({
-              where: { id: viewer.id },
-              select: { studyStreak: true },
-            })
-          : Promise.resolve(null),
-      ]);
+    const [
+      totalWords,
+      studied,
+      mastered,
+      due,
+      bookmarked,
+      pendingRows,
+      profile,
+    ] = await Promise.all([
+      prisma.word.count(),
+      viewer
+        ? prisma.userWord.count({ where: { userId: viewer.id } })
+        : Promise.resolve(0),
+      viewer
+        ? prisma.userWord.count({
+            where: { userId: viewer.id, mastery: { gte: MASTERED_AT } },
+          })
+        : Promise.resolve(0),
+      viewer
+        ? prisma.userWord.count({
+            where: {
+              userId: viewer.id,
+              nextReviewAt: { lte: now },
+            },
+          })
+        : Promise.resolve(0),
+      viewer
+        ? prisma.userWord.count({
+            where: { userId: viewer.id, isBookmarked: true },
+          })
+        : Promise.resolve(0),
+      viewer
+        ? prisma.userWord.findMany({
+            where: {
+              userId: viewer.id,
+              lastRating: "unknown",
+              nextReviewAt: { gt: now },
+            },
+            select: { nextReviewAt: true },
+          })
+        : Promise.resolve([]),
+      viewer
+        ? prisma.user.findUnique({
+            where: { id: viewer.id },
+            select: { studyStreak: true },
+          })
+        : Promise.resolve(null),
+    ]);
+
+    const today = studyDayKey(now);
+    const pendingToday = pendingRows.filter(
+      (row) => studyDayKey(row.nextReviewAt) === today,
+    ).length;
 
     return {
       source: "database",
@@ -407,7 +474,7 @@ export async function getLearningStats(
         totalWords,
         studied,
         mastered,
-        due,
+        due: due + Math.max(0, totalWords - studied) + pendingToday,
         bookmarked,
         streak: Math.max(0, profile?.studyStreak ?? 0),
       },
@@ -420,7 +487,12 @@ export async function getLearningStats(
 
 export type WordsResult = {
   words: WordWithProgress[];
+  /** Number of words in the active review queue (not just this page). */
   total: number;
+  totalWords: number;
+  completed: boolean;
+  pendingToday: number;
+  nextReviewAt: string | null;
   source: DataSource;
 };
 
@@ -429,6 +501,8 @@ export type WordQuery = {
   random?: boolean;
   limit?: number;
   viewer: Viewer | null;
+  /** "review" returns today's due + unlearned words. "all" is for pickers. */
+  scope?: "review" | "all";
 };
 
 function shuffle<T>(items: T[]): T[] {
@@ -440,33 +514,72 @@ function shuffle<T>(items: T[]): T[] {
   return copy;
 }
 
+function previewWordsResult(
+  bookSlug: string | undefined,
+  random: boolean | undefined,
+  limit: number,
+): WordsResult {
+  const preview = wordbookSeed
+    .filter((book) => !bookSlug || book.slug === bookSlug)
+    .flatMap((book) =>
+      book.words.map((_, index) => ({
+        ...previewWord(book.slug, index),
+        userWord: null,
+      })),
+    );
+  const ordered = random ? shuffle(preview) : preview;
+  return {
+    words: ordered.slice(0, limit),
+    total: preview.length,
+    totalWords: preview.length,
+    completed: false,
+    pendingToday: 0,
+    nextReviewAt: null,
+    source: "preview",
+  };
+}
+
 export async function getWords(query: WordQuery): Promise<WordsResult> {
   const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
   const bookSlug = query.bookSlug?.trim() || undefined;
+  const scope = query.scope ?? "review";
+  const now = new Date();
 
   if (!hasDatabaseUrl) {
-    const preview = wordbookSeed
-      .filter((book) => !bookSlug || book.slug === bookSlug)
-      .flatMap((book) =>
-        book.words.map((_, index) => ({
-          ...previewWord(book.slug, index),
-          userWord: null,
-        })),
-      );
-    const ordered = query.random ? shuffle(preview) : preview;
-    return {
-      words: ordered.slice(0, limit),
-      total: preview.length,
-      source: "preview",
-    };
+    return previewWordsResult(bookSlug, query.random, limit);
   }
 
   try {
-    const words = await prisma.word.findMany({
-      where: bookSlug ? { wordBook: { slug: bookSlug } } : undefined,
-      orderBy: { spelling: "asc" },
-      take: 500,
-    });
+    const bookWhere = bookSlug
+      ? { wordBook: { slug: bookSlug } }
+      : {};
+    const queueWhere =
+      scope === "review" && query.viewer
+        ? {
+            OR: [
+              { userWords: { none: { userId: query.viewer.id } } },
+              {
+                userWords: {
+                  some: {
+                    userId: query.viewer.id,
+                    nextReviewAt: { lte: now },
+                  },
+                },
+              },
+            ],
+          }
+        : {};
+    const where = { ...bookWhere, ...queueWhere };
+
+    const [words, queueTotal, totalWords] = await Promise.all([
+      prisma.word.findMany({
+        where,
+        orderBy: { spelling: "asc" },
+        take: 500,
+      }),
+      prisma.word.count({ where }),
+      prisma.word.count({ where: bookWhere }),
+    ]);
 
     const rows = query.viewer
       ? await prisma.userWord.findMany({
@@ -504,28 +617,45 @@ export async function getWords(query: WordQuery): Promise<WordsResult> {
       };
     });
 
+    let pendingToday = 0;
+    let nextReviewAt: string | null = null;
+
+    // An empty due queue is not necessarily "done": unknown answers are
+    // parked for a few minutes and should surface again today.
+    if (scope === "review" && query.viewer && queueTotal === 0) {
+      const pending = await prisma.userWord.findMany({
+        where: {
+          userId: query.viewer.id,
+          lastRating: "unknown",
+          nextReviewAt: { gt: now },
+          ...(bookSlug
+            ? { word: { wordBook: { slug: bookSlug } } }
+            : {}),
+        },
+        orderBy: { nextReviewAt: "asc" },
+        select: { nextReviewAt: true },
+      });
+      const today = studyDayKey(now);
+      const todayPending = pending.filter(
+        (row) => studyDayKey(row.nextReviewAt) === today,
+      );
+      pendingToday = todayPending.length;
+      nextReviewAt = todayPending[0]?.nextReviewAt.toISOString() ?? null;
+    }
+
     const ordered = query.random ? shuffle(mapped) : mapped;
     return {
       words: ordered.slice(0, limit),
-      total: words.length,
+      total: queueTotal,
+      totalWords,
+      completed: queueTotal === 0 && totalWords > 0 && pendingToday === 0,
+      pendingToday,
+      nextReviewAt,
       source: "database",
     };
   } catch (error) {
     console.error("[data] Falling back to preview words", error);
-    const preview = wordbookSeed
-      .filter((book) => !bookSlug || book.slug === bookSlug)
-      .flatMap((book) =>
-        book.words.map((_, index) => ({
-          ...previewWord(book.slug, index),
-          userWord: null,
-        })),
-      );
-    const ordered = query.random ? shuffle(preview) : preview;
-    return {
-      words: ordered.slice(0, limit),
-      total: preview.length,
-      source: "preview",
-    };
+    return previewWordsResult(bookSlug, query.random, limit);
   }
 }
 

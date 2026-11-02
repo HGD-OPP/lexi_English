@@ -15,6 +15,8 @@ export async function GET(request: Request) {
       randomParam === "yes";
     const limitParam = Number(searchParams.get("limit") ?? "20");
     const limit = Number.isFinite(limitParam) ? limitParam : 20;
+    const scope =
+      searchParams.get("scope") === "all" ? "all" : "review";
     const viewer = await getViewer();
 
     const result = await getWords({
@@ -22,6 +24,7 @@ export async function GET(request: Request) {
       random,
       limit,
       viewer,
+      scope,
     });
 
     return NextResponse.json(result);
