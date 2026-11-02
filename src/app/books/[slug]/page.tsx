@@ -85,6 +85,10 @@ export default async function BookDetailPage({ params }: BookPageProps) {
               已掌握 {book.masteredCount}
             </span>
             <span className="inline-flex items-center gap-1.5">
+              <BookOpen className="size-3.5" strokeWidth={1.7} />
+              新词 {book.newCount}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
               <Clock className="size-3.5" strokeWidth={1.7} />
               待复习 {book.dueCount}
             </span>

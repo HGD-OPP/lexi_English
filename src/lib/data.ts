@@ -11,7 +11,7 @@ import type {
   WordWithProgress,
 } from "@/lib/types";
 import { findSeedBook, wordbookSeed } from "@/lib/wordbook-data";
-import { studyDayKey } from "@/lib/study-streak";
+import { studyDayKey, studyDayRange, STREAK_GOAL } from "@/lib/study-streak";
 
 export const MASTERED_AT = 4;
 
@@ -53,7 +53,8 @@ function emptySummary(
     emoji: book.emoji,
     wordCount: book.words.length,
     masteredCount: 0,
-    dueCount: book.words.length,
+    newCount: book.words.length,
+    dueCount: 0,
     progress: 0,
   };
 }
@@ -197,7 +198,8 @@ export async function getWordBooks(
           emoji: book.emoji,
           wordCount,
           masteredCount: totals.mastered,
-          dueCount: totals.due + Math.max(0, wordCount - seen),
+          newCount: Math.max(0, wordCount - seen),
+          dueCount: totals.due,
           progress:
             wordCount > 0
               ? Math.round((totals.mastered / wordCount) * 100)
@@ -276,10 +278,8 @@ export async function getWordBookDetail(
       .sort((left, right) => {
         return left.nextReviewAt.getTime() - right.nextReviewAt.getTime();
       });
-    const dueCount =
-      dueRows +
-      Math.max(0, wordCount - rows.length) +
-      pendingRows.length;
+    const dueCount = dueRows + pendingRows.length;
+    const newCount = Math.max(0, wordCount - rows.length);
     const queueWords = book.words.filter((word) => {
       const progress = rowsByWord.get(word.id);
       return !progress || progress.nextReviewAt.getTime() <= now.getTime();
@@ -299,6 +299,7 @@ export async function getWordBookDetail(
           emoji: book.emoji,
           wordCount,
           masteredCount: totals.mastered,
+          newCount,
           dueCount,
           progress:
             wordCount > 0
@@ -387,11 +388,16 @@ export type StatsResult = {
 
 const EMPTY_STATS: LearningStats = {
   totalWords: 0,
+  newWords: 0,
   studied: 0,
   mastered: 0,
   due: 0,
   bookmarked: 0,
   streak: 0,
+  todayStudied: 0,
+  streakGoal: STREAK_GOAL,
+  streakRemaining: STREAK_GOAL,
+  checkedInToday: false,
 };
 
 export async function getLearningStats(
@@ -407,13 +413,16 @@ export async function getLearningStats(
       stats: {
         ...EMPTY_STATS,
         totalWords,
-        due: totalWords,
+        newWords: totalWords,
+        due: 0,
+        streakRemaining: STREAK_GOAL,
       },
     };
   }
 
   try {
     const now = new Date();
+    const studyRange = studyDayRange(now);
     const [
       totalWords,
       studied,
@@ -422,6 +431,7 @@ export async function getLearningStats(
       bookmarked,
       pendingRows,
       profile,
+      todayStudied,
     ] = await Promise.all([
       prisma.word.count(),
       viewer
@@ -461,22 +471,39 @@ export async function getLearningStats(
             select: { studyStreak: true },
           })
         : Promise.resolve(null),
+      viewer
+        ? prisma.userWord.count({
+            where: {
+              userId: viewer.id,
+              lastReviewedAt: {
+                gte: studyRange.start,
+                lt: studyRange.end,
+              },
+            },
+          })
+        : Promise.resolve(0),
     ]);
 
     const today = studyDayKey(now);
     const pendingToday = pendingRows.filter(
       (row) => studyDayKey(row.nextReviewAt) === today,
     ).length;
+    const newWords = Math.max(0, totalWords - studied);
 
     return {
       source: "database",
       stats: {
         totalWords,
+        newWords,
         studied,
         mastered,
-        due: due + Math.max(0, totalWords - studied) + pendingToday,
+        due: due + pendingToday,
         bookmarked,
         streak: Math.max(0, profile?.studyStreak ?? 0),
+        todayStudied,
+        streakGoal: STREAK_GOAL,
+        streakRemaining: Math.max(0, STREAK_GOAL - todayStudied),
+        checkedInToday: todayStudied >= STREAK_GOAL,
       },
     };
   } catch (error) {

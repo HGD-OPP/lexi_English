@@ -11,6 +11,9 @@ export type WordBookSummary = {
   emoji: string;
   wordCount: number;
   masteredCount: number;
+  /** Words that have never been studied by this user. */
+  newCount: number;
+  /** Due or waiting to reappear later today. */
   dueCount: number;
   progress: number;
 };
@@ -52,11 +55,19 @@ export type WordBookDetail = {
 
 export type LearningStats = {
   totalWords: number;
+  /** Never studied: no UserWord row exists. */
+  newWords: number;
   studied: number;
   mastered: number;
+  /** Due now, plus unknown words waiting to reappear later today. */
   due: number;
   bookmarked: number;
   streak: number;
+  /** Distinct words rated today (Asia/Shanghai calendar day). */
+  todayStudied: number;
+  streakGoal: number;
+  streakRemaining: number;
+  checkedInToday: boolean;
 };
 
 export type BookmarkItem = WordWithProgress & {

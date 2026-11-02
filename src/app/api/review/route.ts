@@ -4,7 +4,7 @@ import { ApiError, jsonError, readJson } from "@/lib/api-error";
 import { requireViewer } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { applyReview } from "@/lib/sm2";
-import { advanceStudyStreak } from "@/lib/study-streak";
+import { advanceStudyStreak, STREAK_GOAL, studyDayRange } from "@/lib/study-streak";
 import type { ReviewRating, UserWordSnapshot } from "@/lib/types";
 
 const RATINGS: ReviewRating[] = ["known", "fuzzy", "unknown"];
@@ -41,6 +41,7 @@ export async function POST(request: Request) {
     }
 
     const now = new Date();
+    const todayRange = studyDayRange(now);
 
     const result = await prisma.$transaction(async (tx) => {
       // Serialize streak updates for one user so two fast submissions cannot
@@ -95,6 +96,16 @@ export async function POST(request: Request) {
         },
       });
 
+      const todayStudied = await tx.userWord.count({
+        where: {
+          userId: viewer.id,
+          lastReviewedAt: {
+            gte: todayRange.start,
+            lt: todayRange.end,
+          },
+        },
+      });
+
       const currentUser = await tx.user.findUnique({
         where: { id: viewer.id },
         select: { studyStreak: true, lastStudyDate: true },
@@ -103,18 +114,30 @@ export async function POST(request: Request) {
         throw new ApiError(500, "USER_NOT_FOUND", "用户资料尚未初始化。");
       }
 
-      const streak = advanceStudyStreak(currentUser, now);
-      if (streak.changed) {
-        await tx.user.update({
-          where: { id: viewer.id },
-          data: {
-            studyStreak: streak.studyStreak,
-            lastStudyDate: streak.lastStudyDate,
-          },
-        });
+      // A check-in is earned only after 20 distinct words have been studied
+      // today. The User row is already locked above, so concurrent reviews
+      // cannot both increment the streak.
+      let studyStreak = currentUser.studyStreak;
+      if (todayStudied >= STREAK_GOAL) {
+        const streak = advanceStudyStreak(currentUser, now);
+        if (streak.changed) {
+          await tx.user.update({
+            where: { id: viewer.id },
+            data: {
+              studyStreak: streak.studyStreak,
+              lastStudyDate: streak.lastStudyDate,
+            },
+          });
+        }
+        studyStreak = streak.studyStreak;
       }
 
-      return { saved, streak, rating: outcome.lastRating };
+      return {
+        saved,
+        studyStreak,
+        todayStudied,
+        rating: outcome.lastRating,
+      };
     });
 
     const userWord: UserWordSnapshot = {
@@ -130,8 +153,12 @@ export async function POST(request: Request) {
     return NextResponse.json({
       userWord,
       rating: result.rating,
-      studyStreak: result.streak.studyStreak,
-      studyDay: result.streak.studyDay,
+      studyStreak: result.studyStreak,
+      studyDay: todayRange.day,
+      todayStudied: result.todayStudied,
+      streakGoal: STREAK_GOAL,
+      streakRemaining: Math.max(0, STREAK_GOAL - result.todayStudied),
+      checkedInToday: result.todayStudied >= STREAK_GOAL,
     });
   } catch (error) {
     return jsonError(error);

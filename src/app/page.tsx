@@ -78,11 +78,15 @@ function BookCard({
             <ChevronRight className="size-4" strokeWidth={1.8} />
           </span>
         </div>
-        {book.dueCount > 0 ? (
+        {book.newCount > 0 || book.dueCount > 0 ? (
           <p className="mt-3 text-[11px] font-medium text-moss-deep">
-            {book.dueCount} 个单词今天该复习了
+            {book.newCount} 个新词 · {book.dueCount} 个待复习
           </p>
-        ) : null}
+        ) : (
+          <p className="mt-3 text-[11px] font-medium text-moss-deep">
+            这本词书今天已完成
+          </p>
+        )}
       </div>
     </Link>
   );
@@ -194,15 +198,53 @@ export default async function HomePage() {
               {viewer ? `${firstName}，慢慢来。` : "先登录，再开始积累。"}
             </p>
 
-            <div className="relative mt-5 flex items-end gap-3">
-              <span className="font-display text-7xl leading-none tracking-tight text-lime">
-                {viewer ? stats.due : "—"}
-              </span>
-              <span className="pb-2 text-sm leading-5 text-paper/55">
-                个单词
-                <br />
-                等待复习
-              </span>
+            <div className="relative mt-5">
+              <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
+                <span className="font-display text-7xl leading-none tracking-tight text-lime">
+                  {viewer ? stats.newWords : "—"}
+                </span>
+                <span className="pb-1.5 text-sm leading-5 text-paper/55">
+                  个新词
+                </span>
+                <span className="pb-1.5 text-lg text-paper/25">·</span>
+                <span className="pb-1 font-display text-3xl leading-none text-paper">
+                  {viewer ? stats.due : "—"}
+                </span>
+                <span className="pb-1.5 text-sm leading-5 text-paper/55">
+                  个待复习
+                </span>
+              </div>
+
+              {viewer ? (
+                <div className="mt-5 rounded-2xl border border-paper/10 bg-paper/[0.06] px-3.5 py-3">
+                  <div className="flex items-center justify-between text-[10px] text-paper/50">
+                    <span className="font-mono uppercase tracking-[0.14em]">
+                      Daily check-in
+                    </span>
+                    <span>
+                      {stats.todayStudied} / {stats.streakGoal} 词
+                    </span>
+                  </div>
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper/10">
+                    <div
+                      className="h-full rounded-full bg-sun transition-[width] duration-500"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            (stats.todayStudied / stats.streakGoal) * 100,
+                          ),
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="mt-2 text-[11px] leading-5 text-paper/55">
+                    {stats.checkedInToday
+                      ? `今日已学 ${stats.todayStudied} 词，已完成打卡。`
+                      : `今日已学 ${stats.todayStudied} 词，再学 ${stats.streakRemaining} 词即可打卡。`}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="relative mt-7 grid grid-cols-2 gap-3 border-t border-paper/10 pt-5">
@@ -236,7 +278,7 @@ export default async function HomePage() {
           </div>
           <p className="mt-3 px-2 text-center text-[11px] leading-5 text-ink-faint">
             {viewer
-              ? "复习间隔按 SM-2 自动安排，认识就延长，不认识就回到明天。"
+              ? "复习间隔按 SM-2 自动安排，认识就延长，不认识就 5 分钟后再来。"
               : "登录后，收藏、掌握程度和复习时间都会跟着你。"}
           </p>
         </aside>

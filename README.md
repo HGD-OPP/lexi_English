@@ -20,8 +20,9 @@
 | 今日队列 | 词书只展示「到期复习 + 从未学习」的单词；认识排到未来，不认识 5 分钟后回到今日队列，直到认识为止 |
 | 完成提示 | 今日队列为空时显示「今日任务已完成」；若有 5 分钟后重现的词，显示待重学数量与刷新入口 |
 | 生词本 | 卡片右上角心形收藏；`/bookmarks` 集中查看、移除、一键闪卡复习 |
-| 个人中心 | `/dashboard` 展示昵称、累计掌握单词数、连续打卡天数、已学习/待复习与总进度 |
-| 连续打卡 | 每次提交评分时按「今天已学不变 / 昨天学过 +1 / 断签重置为 1」更新 `User.studyStreak` 与 `User.lastStudyDate` |
+| 今日统计 | 首页 Today 卡把「从未学过的新词」与「待复习」分开显示；当天学满 20 个不同单词才计入连续打卡 |
+| 个人中心 | `/dashboard` 展示昵称、累计掌握单词数、连续打卡天数、今日已学/目标、已学习/待复习与总进度 |
+| 连续打卡 | 当天学满 20 个不同单词后，按「今天已打卡不变 / 昨天学过 +1 / 断签重置为 1」更新 `User.studyStreak` 与 `User.lastStudyDate` |
 | AI 记忆法 | 卡背先展示种子词库自带的记忆提示；登录后点击「用 AI 生成三种记忆法」才调用 `/api/generate-memory`，生成「联想 / 词根 / 谐音」三种风格并缓存 |
 | 账号 | Supabase Auth 邮箱密码注册/登录；所有 `UserWord` 读写绑定当前登录用户 |
 | 预览模式 | 未配置数据库或 Supabase 时，页面仍可用内置 400 个单词跑通浏览与闪卡（登录/保存不可用） |
@@ -188,7 +189,7 @@ npm start
 | 方法 | 路径 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
 | `GET` | `/api/words?book=<slug>&random=1&limit=20&scope=review` | 否（登录后按用户过滤） | 默认只返回当前用户「到期 + 未学习」的今日队列；`scope=all` 用于选择题干扰项等需要全量词库的场景；返回 `{ words, total, totalWords, completed, pendingToday, nextReviewAt, source }` |
-| `POST` | `/api/review` | 是 | `{ wordId, rating: "known" \| "fuzzy" \| "unknown" }`，更新 SM-2、打卡天数，返回 `{ userWord, rating, studyStreak, studyDay }` |
+| `POST` | `/api/review` | 是 | `{ wordId, rating: "known" \| "fuzzy" \| "unknown" }`，更新 SM-2；当天第 20 个不同单词起更新打卡。返回 `{ userWord, rating, studyStreak, studyDay, todayStudied, streakGoal, streakRemaining, checkedInToday }` |
 | `GET` | `/api/bookmarks` | 是 | 当前用户收藏列表 `{ bookmarks, source }` |
 | `POST` | `/api/bookmarks` | 是 | `{ wordId, bookmarked?: boolean }`，upsert 收藏状态 |
 | `DELETE` | `/api/bookmarks?wordId=<id>` | 是 | 取消收藏 |
@@ -223,15 +224,18 @@ npm start
 
 ### 连续学习天数
 
+打卡目标是 **每天 20 个不同单词**，只统计当天真正提交过评分的 `UserWord`（按 `lastReviewedAt` 落在当前 Asia/Shanghai 自然日内去重）。不足 20 个时不会更新 `lastStudyDate`，因此首页/个人中心会提示还差几个词。
+
 `User.studyStreak` 与 `User.lastStudyDate` 由 `POST /api/review` 维护，日期按 **Asia/Shanghai** 计算，`lastStudyDate` 用 Postgres `DATE` 存储：
 
-| 提交评分时的状态 | studyStreak |
+| 提交第 20 个不同单词后的状态 | studyStreak |
 | --- | --- |
-| 今天已经评价过 | 不变 |
+| 今天已经打过卡 | 不变 |
 | 上次学习是昨天 | +1 |
 | 首次学习 / 断签一天以上 | 重置为 1 |
+| 今天学习数不足 20 | 不更新，继续提示还差 Y 词 |
 
-评分写入与打卡更新在同一个 Prisma 事务中；事务先锁住当前用户行（`SELECT ... FOR UPDATE`），避免两次快速提交把同一天重复加一。首页和 `/dashboard` 都直接读取这个字段，因此两处显示一致。
+评分写入、今日唯一词计数与打卡更新在同一个 Prisma 事务中；事务先锁住当前用户行（`SELECT ... FOR UPDATE`），避免两次快速提交把同一天重复加一。首页和 `/dashboard` 都直接读取 `studyStreak` 与今日计数，因此两处显示一致。
 
 ---
 
@@ -366,6 +370,8 @@ Remove-Item Env:DATABASE_URL
 - `/` 能看到 6 本词书（数据库已 seed 时不再显示 Preview 标记；含「初中词汇」「四级核心」）
 - 注册 → 邮箱确认 → 登录
 - 进入「初中词汇」应看到 100 词，进入「四级核心」应看到 200 词；每张卡都显示词性、释义和双语例句
+- 首页 Today 卡分别显示「新词」和「待复习」，不再把未学习词混进待复习数
+- 今天学 19 个不同词时，个人中心显示「再学 1 词即可打卡」，streak 不变；学满第 20 个后 streak +1
 - 进入词书 → 点单词 → 翻转 → 发音 → 评分
 - 新账号首次进入时，词书只显示未学习词；点「认识」后刷新，该词不再出现（排到至少 2 天后）
 - 点「不认识」后，队列为空会显示约 5 分钟后重现；等待或刷新后该词重新出现，直到点「认识」

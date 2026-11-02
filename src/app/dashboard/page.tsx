@@ -150,13 +150,36 @@ export default async function DashboardPage() {
             <span className="pb-1 text-sm text-paper/50">天连续打卡</span>
           </div>
 
-          <p className="relative mt-4 max-w-xs text-xs leading-6 text-paper/50">
-            {stats.streak > 0
-              ? "连续学习正在积累。今天再完成一组评分，就能把记录继续写下去。"
-              : "完成一次单词评分，就会点亮你的第一天。明天再来，连续记录会加一。"}
-          </p>
+          <div className="relative mt-5">
+            <div className="flex items-center justify-between text-[10px] text-paper/45">
+              <span className="font-mono uppercase tracking-[0.14em]">
+                今日学习
+              </span>
+              <span>
+                {stats.todayStudied} / {stats.streakGoal} 词
+              </span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-paper/10">
+              <div
+                className="h-full rounded-full bg-sun transition-[width] duration-500"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    Math.round(
+                      (stats.todayStudied / stats.streakGoal) * 100,
+                    ),
+                  )}%`,
+                }}
+              />
+            </div>
+            <p className="mt-2.5 text-xs leading-6 text-paper/55">
+              {stats.checkedInToday
+                ? `今日已学 ${stats.todayStudied} 词，已完成打卡。`
+                : `今日已学 ${stats.todayStudied} 词，再学 ${stats.streakRemaining} 词即可打卡。`}
+            </p>
+          </div>
 
-          <div className="relative mt-6 flex gap-1.5" aria-hidden>
+          <div className="relative mt-5 flex gap-1.5" aria-hidden>
             {Array.from({ length: 7 }).map((_, index) => (
               <span
                 key={index}

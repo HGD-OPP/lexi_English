@@ -8,6 +8,11 @@
 
 export const STUDY_TIME_ZONE = "Asia/Shanghai";
 
+/** Number of distinct words needed to complete a daily check-in. */
+export const STREAK_GOAL = 20;
+
+const SHANGHAI_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+
 const dayFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: STUDY_TIME_ZONE,
   year: "numeric",
@@ -44,6 +49,23 @@ export function studyDayKey(date: Date): string {
 /** Convert a YYYY-MM-DD study day to the UTC-midnight Date used by @db.Date. */
 export function studyDayToDate(studyDay: string): Date {
   return new Date(`${studyDay}T00:00:00.000Z`);
+}
+
+/**
+ * UTC instants bounding the current Asia/Shanghai calendar day.
+ * The end is exclusive, so `gte start, lt end` counts exactly one day.
+ */
+export function studyDayRange(now = new Date()): {
+  day: string;
+  start: Date;
+  end: Date;
+} {
+  const day = studyDayKey(now);
+  const start = new Date(
+    studyDayToDate(day).getTime() - SHANGHAI_UTC_OFFSET_MS,
+  );
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { day, start, end };
 }
 
 /** Move a study-day key by a number of calendar days. */
