@@ -103,6 +103,33 @@ const studyModes: Array<{ id: StudyMode; label: string }> = [
   { id: "choice", label: "选择题模式" },
 ];
 
+type Celebration = {
+  emoji: string;
+  message: string;
+};
+
+const defaultCelebration: Celebration = {
+  emoji: "🎉",
+  message: "这一轮，走完了。给自己一点掌声。",
+};
+
+const celebrations: Celebration[] = [
+  { emoji: "🎉", message: "太棒了，今天的你闪闪发光！" },
+  { emoji: "✨", message: "又消灭了一批单词，继续加油！" },
+  { emoji: "🌟", message: "今天的坚持，都会变成明天的底气。" },
+  { emoji: "🏆", message: "这一轮很稳，你比昨天更强了一点。" },
+  { emoji: "🚀", message: "单词又少了一点，继续往前冲！" },
+  { emoji: "🌱", message: "慢慢来，你已经在变好的路上了。" },
+];
+
+function pickCelebration(): Celebration {
+  return (
+    celebrations[Math.floor(Math.random() * celebrations.length)] ??
+    defaultCelebration
+  );
+}
+
+
 const FALLBACK_DISTRACTOR_MEANINGS = [
   "n. 责任；职责",
   "v. 改善；提高",
@@ -212,6 +239,8 @@ export function Flashcard({
   const [choiceResult, setChoiceResult] = useState<ChoiceResult | null>(null);
   const [finished, setFinished] = useState(false);
   const [reviewedCount, setReviewedCount] = useState(0);
+  const [celebration, setCelebration] =
+    useState<Celebration>(defaultCelebration);
   const advanceTimer = useRef<number | null>(null);
   const inFlightMemory = useRef<Set<string>>(new Set());
   const choiceRequestId = useRef(0);
@@ -506,6 +535,7 @@ export function Flashcard({
 
       advanceTimer.current = window.setTimeout(() => {
         if (index >= words.length - 1) {
+          setCelebration(pickCelebration());
           setFinished(true);
         } else {
           setIndex((current) => current + 1);
@@ -765,14 +795,14 @@ export function Flashcard({
         {finished ? (
           <div className="my-auto py-10">
             <div className="animate-fade-up rounded-[2rem] border border-paper/10 bg-cream p-8 text-center shadow-[var(--shadow-float)] sm:p-12">
-              <span className="mx-auto grid size-16 place-items-center rounded-full bg-lime text-moss-deep">
-                <CircleCheck className="size-8" strokeWidth={1.6} />
+              <span className="mx-auto grid size-24 place-items-center rounded-full bg-lime/70 text-6xl shadow-[0_18px_45px_-25px_rgba(47,93,67,0.65)] animate-check-pop">
+                {celebration.emoji}
               </span>
               <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.22em] text-ink-faint">
                 Round complete
               </p>
-              <h2 className="mt-2 font-display text-3xl tracking-tight">
-                这一轮，走完了。
+              <h2 className="mx-auto mt-2 max-w-md font-display text-3xl leading-tight tracking-tight">
+                {celebration.message}
               </h2>
               <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-ink-soft">
                 你刚刚复习了 {reviewedCount || words.length} 个单词。记住多少不重要，重要的是明天还会再见。
@@ -791,7 +821,7 @@ export function Flashcard({
                   onClick={onClose}
                   className="flash-button inline-flex h-11 items-center justify-center gap-2 rounded-full bg-ink px-5 text-sm text-paper transition hover:bg-moss-deep"
                 >
-                  回到列表
+                  {onRestart ? "返回词书" : "回到列表"}
                   <ChevronRight className="size-4" />
                 </button>
               </div>
