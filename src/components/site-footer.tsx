@@ -3,23 +3,43 @@ import Link from "next/link";
 export function SiteFooter() {
   return (
     <footer className="mt-20 border-t border-line/60">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-ink-faint sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <p>
-          <span className="font-display text-lg text-ink">lexi.</span>{" "}
-          把单词学成自己的。
-        </p>
-        <div className="flex items-center gap-5">
-          <Link href="/" className="transition hover:text-ink">
-            词书
-          </Link>
-          <Link href="/bookmarks" className="transition hover:text-ink">
-            生词本
-          </Link>
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em]">
-            SM-2 inside
-          </span>
+      <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-ink-faint">
+            <span className="font-display text-lg text-ink">lexi.</span>{" "}
+            把单词学成自己的。
+          </p>
+
+          <nav
+            aria-label="页脚导航"
+            className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-ink-faint"
+          >
+            <Link href="/" className="transition hover:text-ink">
+              词书
+            </Link>
+            <Link href="/bookmarks" className="transition hover:text-ink">
+              生词本
+            </Link>
+            <a href="#" className="transition hover:text-ink">
+              关于我们
+            </a>
+            <a href="#" className="transition hover:text-ink">
+              隐私政策
+            </a>
+            <a href="#" className="transition hover:text-ink">
+              联系我们
+            </a>
+          </nav>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-1.5 border-t border-line/50 pt-4 text-[11px] text-ink-faint sm:flex-row sm:items-center sm:justify-between">
+          <p>© 2026 lexi. All rights reserved.</p>
+          <p>
+            Made with <span className="text-rose">❤️</span> by haoxuanhuang
+          </p>
         </div>
       </div>
     </footer>
   );
 }
+
