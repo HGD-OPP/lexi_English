@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AboutModal } from "./about-modal";
 
 export function SiteFooter() {
   return (
@@ -20,9 +21,7 @@ export function SiteFooter() {
             <Link href="/bookmarks" className="transition hover:text-ink">
               生词本
             </Link>
-            <a href="#" className="transition hover:text-ink">
-              关于我们
-            </a>
+            <AboutModal />
             <a href="#" className="transition hover:text-ink">
               隐私政策
             </a>
