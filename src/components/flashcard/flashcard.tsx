@@ -691,7 +691,7 @@ export function Flashcard({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 items-center gap-2 rounded-full border border-paper/15 bg-paper/5 px-3 text-xs transition hover:bg-paper/10 hover:text-paper"
+            className="flash-button inline-flex h-9 items-center gap-2 rounded-full border border-paper/15 bg-paper/5 px-3 text-xs transition hover:bg-paper/10 hover:text-paper"
           >
             <X className="size-4" strokeWidth={1.8} />
             关闭
@@ -708,7 +708,7 @@ export function Flashcard({
               type="button"
               onClick={() => goTo(index - 1)}
               disabled={index === 0 || saving}
-              className="grid size-8 place-items-center rounded-full border border-paper/15 text-paper/70 transition hover:bg-paper/10 hover:text-paper disabled:opacity-25"
+              className="flash-button grid size-8 place-items-center rounded-full border border-paper/15 text-paper/70 transition hover:bg-paper/10 hover:text-paper disabled:opacity-25"
               aria-label="上一个单词"
             >
               <ChevronLeft className="size-4" />
@@ -717,7 +717,7 @@ export function Flashcard({
               type="button"
               onClick={() => goTo(index + 1)}
               disabled={index >= words.length - 1 || saving}
-              className="grid size-8 place-items-center rounded-full border border-paper/15 text-paper/70 transition hover:bg-paper/10 hover:text-paper disabled:opacity-25"
+              className="flash-button grid size-8 place-items-center rounded-full border border-paper/15 text-paper/70 transition hover:bg-paper/10 hover:text-paper disabled:opacity-25"
               aria-label="下一个单词"
             >
               <ChevronRight className="size-4" />
@@ -748,7 +748,7 @@ export function Flashcard({
                     onClick={() => changeMode(option.id)}
                     disabled={saving}
                     aria-pressed={active}
-                    className={`inline-flex h-8 items-center justify-center rounded-full px-3.5 text-[11px] font-medium transition sm:text-xs ${
+                    className={`flash-button inline-flex h-8 items-center justify-center rounded-full px-3.5 text-[11px] font-medium transition sm:text-xs ${
                       active
                         ? "bg-paper text-ink shadow-sm"
                         : "text-paper/60 hover:text-paper"
@@ -781,7 +781,7 @@ export function Flashcard({
                 <button
                   type="button"
                   onClick={restart}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-line bg-cream px-5 text-sm transition hover:border-moss/30"
+                  className="flash-button inline-flex h-11 items-center justify-center gap-2 rounded-full border border-line bg-cream px-5 text-sm transition hover:border-moss/30"
                 >
                   <RotateCcw className="size-4" strokeWidth={1.8} />
                   {onRestart ? "刷新今日队列" : "再来一轮"}
@@ -789,7 +789,7 @@ export function Flashcard({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-ink px-5 text-sm text-paper transition hover:bg-moss-deep"
+                  className="flash-button inline-flex h-11 items-center justify-center gap-2 rounded-full bg-ink px-5 text-sm text-paper transition hover:bg-moss-deep"
                 >
                   回到列表
                   <ChevronRight className="size-4" />
@@ -806,7 +806,7 @@ export function Flashcard({
                     type="button"
                     onClick={toggleBookmark}
                     disabled={bookmarkSaving}
-                    className={`absolute right-4 top-4 z-30 grid size-11 place-items-center rounded-full border shadow-sm backdrop-blur transition ${
+                    className={`flash-button absolute right-4 top-4 z-30 grid size-11 place-items-center rounded-full border shadow-sm backdrop-blur transition ${
                       bookmarked
                         ? "border-rose/70 bg-rose text-[#9b3f35]"
                         : "border-line bg-cream/85 text-ink-soft hover:text-[#9b3f35]"
@@ -825,7 +825,14 @@ export function Flashcard({
                     )}
                   </button>
 
-                  <div className="flip-scene h-[clamp(350px,58vh,570px)]">
+                  <div
+                    className={`flip-scene h-[clamp(350px,58vh,570px)] ${
+                      mode === "choice" &&
+                      choiceResult?.status === "wrong"
+                        ? "animate-answer-shake"
+                        : ""
+                    }`}
+                  >
                     <div
                       className={`flip-card ${flipped ? "is-flipped" : ""}`}
                     >
@@ -865,7 +872,7 @@ export function Flashcard({
                                 event.stopPropagation();
                                 speak();
                               }}
-                              className="mt-6 inline-flex h-11 items-center gap-2 rounded-full border border-moss/15 bg-lime/60 px-4 text-sm text-moss-deep transition hover:bg-lime"
+                              className="flash-button mt-6 inline-flex h-11 items-center gap-2 rounded-full border border-moss/15 bg-lime/60 px-4 text-sm text-moss-deep transition hover:bg-lime"
                             >
                               <Volume2 className="size-4" strokeWidth={1.8} />
                               听发音
@@ -982,7 +989,7 @@ export function Flashcard({
                                   Boolean(spellingResult) ||
                                   !spellingAnswer.trim()
                                 }
-                                className="inline-flex h-11 shrink-0 items-center justify-center rounded-xl bg-ink px-4 text-xs font-medium text-paper transition hover:bg-moss-deep disabled:cursor-not-allowed disabled:opacity-35"
+                                className="flash-button inline-flex h-11 shrink-0 items-center justify-center rounded-xl bg-ink px-4 text-xs font-medium text-paper transition hover:bg-moss-deep disabled:cursor-not-allowed disabled:opacity-35"
                               >
                                 验证
                               </button>
@@ -1111,7 +1118,7 @@ export function Flashcard({
                                     event.stopPropagation();
                                     generateMemory();
                                   }}
-                                  className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-moss/20 bg-lime/60 px-3 py-1.5 text-[11px] font-medium text-moss-deep transition hover:bg-lime"
+                                  className="flash-button mt-3 inline-flex items-center gap-1.5 rounded-full border border-moss/20 bg-lime/60 px-3 py-1.5 text-[11px] font-medium text-moss-deep transition hover:bg-lime"
                                 >
                                   <Sparkles className="size-3.5" />
                                   用 AI 生成三种记忆法
@@ -1166,7 +1173,7 @@ export function Flashcard({
                                       "border-line bg-cream/80 text-ink hover:border-moss/40 hover:bg-lime/25";
                                     if (selectedCorrect) {
                                       optionClass =
-                                        "border-moss bg-lime text-moss-deep";
+                                        "border-moss bg-lime text-moss-deep animate-answer-correct";
                                     } else if (revealCorrect) {
                                       optionClass =
                                         "border-[#c35b4a] bg-[#fbe9e4] text-[#9f3f32]";
@@ -1192,7 +1199,7 @@ export function Flashcard({
                                           Boolean(choiceResult)
                                         }
                                         aria-pressed={selected}
-                                        className={`flex min-h-[3.25rem] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition disabled:cursor-not-allowed ${optionClass}`}
+                                        className={`flash-button flex min-h-[3.25rem] w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-sm transition disabled:cursor-not-allowed ${optionClass}`}
                                       >
                                         <span
                                           className="grid size-6 shrink-0 place-items-center rounded-full border border-current/20 font-mono text-[10px] opacity-70"
@@ -1209,7 +1216,7 @@ export function Flashcard({
                                         </span>
                                         {selectedCorrect ? (
                                           <Check
-                                            className="size-4 shrink-0"
+                                            className="size-4 shrink-0 animate-check-pop"
                                             strokeWidth={2}
                                           />
                                         ) : revealCorrect || selectedWrong ? (
@@ -1236,7 +1243,7 @@ export function Flashcard({
                                 >
                                   <p className="flex items-center gap-1.5 font-medium">
                                     {choiceResult.status === "correct" ? (
-                                      <Check className="size-3.5" />
+                                      <Check className="size-3.5 animate-check-pop" />
                                     ) : (
                                       <X className="size-3.5" />
                                     )}
@@ -1320,7 +1327,7 @@ export function Flashcard({
                           type="button"
                           onClick={() => handleReview(option.rating)}
                           disabled={!flipped || saving}
-                          className={`group flex h-14 flex-col items-center justify-center gap-0.5 rounded-2xl border px-2 text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-35 sm:h-16 ${option.className}`}
+                          className={`flash-button group flex h-14 flex-col items-center justify-center gap-0.5 rounded-2xl border px-2 text-sm font-medium shadow-sm transition disabled:cursor-not-allowed disabled:opacity-35 sm:h-16 ${option.className}`}
                         >
                           <span className="inline-flex items-center gap-1.5">
                             <Icon className="size-4" strokeWidth={2} />

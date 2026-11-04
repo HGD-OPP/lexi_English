@@ -180,7 +180,7 @@ export default async function HomePage() {
         </div>
 
         <aside className="animate-fade-up [animation-delay:120ms]">
-          <div className="relative overflow-hidden rounded-[2rem] bg-ink p-6 text-paper shadow-[var(--shadow-float)] sm:p-7">
+          <div className="stat-card-hover relative overflow-hidden rounded-[2rem] bg-ink p-6 text-paper shadow-[var(--shadow-float)] sm:p-7">
             <div
               className="pointer-events-none absolute -right-16 -top-20 size-56 rounded-full border-[28px] border-lime/10"
               aria-hidden="true"

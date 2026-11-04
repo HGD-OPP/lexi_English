@@ -155,12 +155,109 @@ button:disabled {
   }
 }
 
+@keyframes answer-correct {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(47, 93, 67, 0);
+  }
+  45% {
+    transform: scale(1.045);
+    box-shadow:
+      0 0 0 5px rgba(47, 93, 67, 0.1),
+      0 12px 30px -12px rgba(47, 93, 67, 0.65);
+  }
+  100% {
+    transform: scale(1.02);
+    box-shadow:
+      0 0 0 2px rgba(47, 93, 67, 0.18),
+      0 8px 22px -12px rgba(47, 93, 67, 0.45);
+  }
+}
+
+@keyframes answer-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  15% {
+    transform: translateX(-7px);
+  }
+  30% {
+    transform: translateX(6px);
+  }
+  45% {
+    transform: translateX(-4px);
+  }
+  60% {
+    transform: translateX(3px);
+  }
+  75% {
+    transform: translateX(-1px);
+  }
+}
+
+@keyframes check-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) rotate(-25deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.25) rotate(4deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
 .animate-fade-up {
   animation: fade-up 650ms cubic-bezier(0.22, 0.8, 0.24, 1) both;
 }
 
 .animate-soft-pulse {
   animation: soft-pulse 1.8s ease-in-out infinite;
+}
+
+.animate-answer-correct {
+  animation: answer-correct 520ms cubic-bezier(0.22, 0.8, 0.24, 1) both;
+}
+
+.animate-answer-shake {
+  animation: answer-shake 420ms ease-in-out both;
+}
+
+.animate-check-pop {
+  animation: check-pop 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Small, shared hover lift for interactive controls. */
+.flash-button {
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    opacity 180ms ease;
+}
+
+.flash-button:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.018);
+  box-shadow:
+    0 0 0 1px rgba(223, 243, 200, 0.16),
+    0 10px 24px -14px rgba(47, 93, 67, 0.55);
+}
+
+.stat-card-hover {
+  transition:
+    transform 300ms ease,
+    box-shadow 300ms ease;
+}
+
+.stat-card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 26px 60px -30px rgba(24, 38, 30, 0.55);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -173,7 +270,15 @@ button:disabled {
   }
 
   .animate-fade-up,
-  .animate-soft-pulse {
+  .animate-soft-pulse,
+  .animate-answer-correct,
+  .animate-answer-shake,
+  .animate-check-pop {
     animation: none;
+  }
+
+  .flash-button:hover:not(:disabled),
+  .stat-card-hover:hover {
+    transform: none;
   }
 }

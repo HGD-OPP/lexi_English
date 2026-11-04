@@ -80,7 +80,7 @@ export default async function DashboardPage() {
   return (
     <div className="mx-auto w-full max-w-5xl px-4 pb-20 pt-10 sm:px-6 lg:px-8">
       <section className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
-        <div className="relative overflow-hidden rounded-[2rem] border border-line bg-cream/70 p-6 shadow-[var(--shadow-card)] sm:p-8">
+        <div className="stat-card-hover relative overflow-hidden rounded-[2rem] border border-line bg-cream/70 p-6 shadow-[var(--shadow-card)] sm:p-8">
           <div
             aria-hidden
             className="pointer-events-none absolute -right-16 -top-20 size-56 rounded-full bg-lime/50 blur-3xl"
@@ -131,7 +131,7 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        <div className="relative flex flex-col justify-between overflow-hidden rounded-[2rem] bg-ink p-6 text-paper sm:p-7">
+        <div className="stat-card-hover relative flex flex-col justify-between overflow-hidden rounded-[2rem] bg-ink p-6 text-paper sm:p-7">
           <div
             aria-hidden
             className="pointer-events-none absolute -right-12 -top-16 size-44 rounded-full bg-lime/10 blur-3xl"
